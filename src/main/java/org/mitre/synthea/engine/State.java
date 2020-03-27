@@ -2,14 +2,19 @@ package org.mitre.synthea.engine;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
-
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
 import org.apache.commons.math.ode.DerivativeException;
 
 import org.mitre.synthea.engine.Components.Exact;
@@ -43,7 +48,7 @@ import org.mitre.synthea.world.concepts.HealthRecord.Medication;
 import org.mitre.synthea.world.concepts.HealthRecord.Report;
 import org.simulator.math.odes.MultiTable;
 
-public abstract class State implements Cloneable {
+public abstract class State implements Cloneable, Serializable {
   public Module module;
   public String name;
   public Long entered;
@@ -480,11 +485,8 @@ public abstract class State implements Cloneable {
     private Object value;
     private String expression;
     private transient ThreadLocal<ExpressionProcessor> threadExpProcessor;
-
-    @Override
-    protected void initialize(Module module, String name, JsonObject definition) {
-      super.initialize(module, name, definition);
-      
+    
+    private ThreadLocal<ExpressionProcessor> getExpProcessor() {
       // If the ThreadLocal instance hasn't been created yet, create it now
       if (threadExpProcessor == null) {
         threadExpProcessor = new ThreadLocal<ExpressionProcessor>();
@@ -495,6 +497,13 @@ public abstract class State implements Cloneable {
         threadExpProcessor.set(new ExpressionProcessor(this.expression));
       }
 
+      return threadExpProcessor;
+    }
+
+    @Override
+    protected void initialize(Module module, String name, JsonObject definition) {
+      super.initialize(module, name, definition);
+      
       // special handling for integers
       if (value instanceof Double) {
         double doubleVal = (double)value;
@@ -517,8 +526,9 @@ public abstract class State implements Cloneable {
 
     @Override
     public boolean process(Person person, long time) {
-      if (threadExpProcessor.get() != null) {
-        value = threadExpProcessor.get().evaluate(person, time);
+      ThreadLocal<ExpressionProcessor> expProcessor = getExpProcessor();
+      if (expProcessor.get() != null) {
+        value = expProcessor.get().evaluate(person, time);
       }
 
       if (value != null) {
@@ -542,11 +552,16 @@ public abstract class State implements Cloneable {
     private String attribute;
     private String action;
     private boolean increment;
+    private int amount;
 
     @Override
     protected void initialize(Module module, String name, JsonObject definition) {
       super.initialize(module, name, definition);
       increment = action.equals("increment");
+      if (amount == 0) {
+        // default to 1 for legacy compatibility
+        amount = 1;
+      }
     }
 
     @Override
@@ -554,6 +569,7 @@ public abstract class State implements Cloneable {
       Counter clone = (Counter) super.clone();
       clone.attribute = attribute;
       clone.increment = increment;
+      clone.amount = amount;
       return clone;
     }
 
@@ -565,9 +581,9 @@ public abstract class State implements Cloneable {
       }
 
       if (increment) {
-        counter++;
+        counter = counter + amount;
       } else {
-        counter--;
+        counter = counter - amount;
       }
       person.attributes.put(attribute, counter);
       return true;
@@ -972,10 +988,38 @@ public abstract class State implements Cloneable {
   public static class MedicationOrder extends State {
     private List<Code> codes;
     private String reason;
-    private JsonObject prescription; // TODO make this a Component
+    private transient JsonObject prescription; // TODO make this a Component
     private String assignToAttribute;
     private boolean administration;
     private boolean chronic;
+    
+    /**
+     * Java Serialization support method to serialize the JsonObject prescription which isn't
+     * natively serializable.
+     * @param oos the stream to write to
+     */
+    private void writeObject(ObjectOutputStream oos) throws IOException {
+      oos.defaultWriteObject();
+      if (prescription != null) {
+        oos.writeObject(prescription.toString());
+      } else {
+        oos.writeObject(null);
+      }
+    }
+    
+    /**
+     * Java Serialization support method to deserialize the JsonObject prescription which isn't
+     * natively serializable.
+     * @param ois the stream to read from
+     */
+    private void readObject(ObjectInputStream ois) throws ClassNotFoundException, IOException {
+      ois.defaultReadObject();
+      String prescriptionJson = (String) ois.readObject();
+      if (prescriptionJson != null) {
+        Gson gson = Utilities.getGson();
+        this.prescription = gson.fromJson(prescriptionJson, JsonObject.class);
+      }
+    }
 
     @Override
     public MedicationOrder clone() {
@@ -1086,7 +1130,7 @@ public abstract class State implements Cloneable {
   public static class CarePlanStart extends State {
     private List<Code> codes;
     private List<Code> activities;
-    private List<JsonObject> goals; // TODO: make this a Component
+    private transient List<JsonObject> goals; // TODO: make this a Component
     private String reason;
     private String assignToAttribute;
 
@@ -1265,10 +1309,7 @@ public abstract class State implements Cloneable {
     private String expression;
     private transient ThreadLocal<ExpressionProcessor> threadExpProcessor;
     
-    @Override
-    protected void initialize(Module module, String name, JsonObject definition) {
-      super.initialize(module, name, definition);
-      
+    private ThreadLocal<ExpressionProcessor> getExpProcessor() {
       // If the ThreadLocal instance hasn't been created yet, create it now
       if (threadExpProcessor == null) {
         threadExpProcessor = new ThreadLocal<ExpressionProcessor>();
@@ -1278,8 +1319,10 @@ public abstract class State implements Cloneable {
       if (this.expression != null && threadExpProcessor.get() == null) { 
         threadExpProcessor.set(new ExpressionProcessor(this.expression));
       }
-    }
 
+      return threadExpProcessor;
+    }
+    
     @Override
     public VitalSign clone() {
       VitalSign clone = (VitalSign) super.clone();
@@ -1298,8 +1341,8 @@ public abstract class State implements Cloneable {
         person.setVitalSign(vitalSign, new ConstantValueGenerator(person, exact.quantity));
       } else if (range != null) {
         person.setVitalSign(vitalSign, new RandomValueGenerator(person, range.low, range.high));
-      } else if (threadExpProcessor.get() != null) {
-        Number value = (Number) threadExpProcessor.get().evaluate(person, time);
+      } else if (getExpProcessor().get() != null) {
+        Number value = (Number) getExpProcessor().get().evaluate(person, time);
         person.setVitalSign(vitalSign, value.doubleValue());
       } else {
         throw new RuntimeException(
@@ -1354,21 +1397,20 @@ public abstract class State implements Cloneable {
     private String expression;
     private transient ThreadLocal<ExpressionProcessor> threadExpProcessor;
     
-    @Override
-    protected void initialize(Module module, String name, JsonObject definition) {
-      super.initialize(module, name, definition);
-      
+    private ThreadLocal<ExpressionProcessor> getExpProcessor() {
       // If the ThreadLocal instance hasn't been created yet, create it now
       if (threadExpProcessor == null) {
         threadExpProcessor = new ThreadLocal<ExpressionProcessor>();
       }
       
       // If there's an expression, create the processor for it
-      if (this.expression != null) { 
+      if (this.expression != null && threadExpProcessor.get() == null) { 
         threadExpProcessor.set(new ExpressionProcessor(this.expression));
       }
-    }
 
+      return threadExpProcessor;
+    }
+    
     @Override
     public Observation clone() {
       Observation clone = (Observation) super.clone();
@@ -1399,8 +1441,8 @@ public abstract class State implements Cloneable {
         value = person.getVitalSign(vitalSign, time);
       } else if (valueCode != null) {
         value = valueCode;
-      } else if (threadExpProcessor.get() != null) {
-        value = threadExpProcessor.get().evaluate(person, time);
+      } else if (getExpProcessor().get() != null) {
+        value = getExpProcessor().get().evaluate(person, time);
       } 
       HealthRecord.Observation observation = person.record.observation(time, primaryCode, value);
       entry = observation;
@@ -1646,7 +1688,63 @@ public abstract class State implements Cloneable {
       return true;
     }
   }
+  
+  /**
+   * The Device state indicates the point that a permanent or semi-permanent device
+   * (for example, a prosthetic, or pacemaker) is associated to a person.
+   * The actual procedure in which the device is implanted is not automatically generated
+   * and should be added separately. A Device may have a manufacturer or model listed
+   * for cases where there is generally only one choice.
+   */
+  public static class Device extends State {
+    public Code code;
+    public String manufacturer;
+    public String model;
 
+    @Override
+    public Device clone() {
+      Device clone = (Device) super.clone();
+      clone.code = code;
+      clone.manufacturer = manufacturer;
+      clone.model = model;
+      return clone;
+    }
+
+    @Override
+    public boolean process(Person person, long time) {
+      HealthRecord.Device device = person.record.deviceImplant(time, code.code);
+      device.codes.add(code);
+      device.manufacturer = manufacturer;
+      device.model = model;
+
+      return true;
+    }
+  }
+  
+  /**
+   * The SupplyList state includes a list of supplies that are needed for the current encounter.
+   * Supplies may include things like PPE for the physician, or other resources and machines.
+   *
+   */
+  public static class SupplyList extends State {
+    // TODO: make a class for these, when needed beyond just exporting
+    public List<JsonObject> supplies;
+
+    @Override
+    public SupplyList clone() {
+      SupplyList clone = (SupplyList) super.clone();
+      clone.supplies = supplies;
+      return clone;
+    }
+
+    @Override
+    public boolean process(Person person, long time) {
+      HealthRecord.Encounter encounter = person.getCurrentEncounter(module);
+      encounter.supplies.addAll(supplies);
+      return true;
+    }
+  }
+  
   /**
    * The Death state type indicates a point in the module at which the patient dies or the patient
    * is given a terminal diagnosis (e.g. "you have 3 months to live"). When the Death state is

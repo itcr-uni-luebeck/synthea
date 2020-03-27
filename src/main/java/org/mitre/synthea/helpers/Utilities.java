@@ -9,10 +9,15 @@ import com.google.gson.JsonPrimitive;
 
 import java.io.IOException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Calendar;
 import java.util.Random;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.mitre.synthea.engine.Logic;
 import org.mitre.synthea.engine.State;
@@ -39,7 +44,7 @@ public class Utilities {
       case "days":
         return TimeUnit.DAYS.toMillis(value);
       case "years":
-        return TimeUnit.DAYS.toMillis((long) 365.25 * value);
+        return TimeUnit.DAYS.toMillis(365 * value);
       case "months":
         return TimeUnit.DAYS.toMillis(30 * value);
       case "weeks":
@@ -173,13 +178,13 @@ public class Utilities {
       case "<=":
         return lhs.compareTo(rhs) <= 0;
       case "==":
-        return lhs == rhs;
+        return lhs.equals(rhs);
       case ">=":
         return lhs.compareTo(rhs) >= 0;
       case ">":
         return lhs.compareTo(rhs) > 0;
       case "!=":
-        return lhs != rhs;
+        return !lhs.equals(rhs);
       case "is nil":
         return lhs == null;
       case "is not nil":
@@ -346,4 +351,32 @@ public class Utilities {
     }
     throw new IllegalArgumentException("Cannot parse value for class " + clazz);
   }
+
+  /**
+   * Walk the directory structure of the modules, and apply the given function for every module.
+   * 
+   * @param action Action to apply for every module. Function signature is 
+   *        (topLevelModulesFolderPath, currentModulePath) -&gt; {...}
+   */
+  public static void walkAllModules(BiConsumer<Path, Path> action) throws Exception {
+    URL modulesFolder = ClassLoader.getSystemClassLoader().getResource("modules");
+    Path modulesPath = Paths.get(modulesFolder.toURI());
+
+    walkAllModules(modulesPath, p -> action.accept(modulesPath, p));
+  }
+
+  /**
+   * Walk the directory structure of the modules starting at the given location, and apply the given
+   * function for every module underneath.
+   * 
+   * @param action Action to apply for every module. Function signature is 
+   *        (currentModulePath) -&gt; {...}
+   */
+  public static void walkAllModules(Path modulesPath, Consumer<Path> action) throws Exception {
+    Files.walk(modulesPath, Integer.MAX_VALUE)
+        .filter(Files::isReadable)
+        .filter(Files::isRegularFile)
+        .filter(p -> p.toString().endsWith(".json"))
+        .forEach(p -> action.accept(p));
+  } 
 }

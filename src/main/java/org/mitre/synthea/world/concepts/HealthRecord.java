@@ -1,7 +1,12 @@
 package org.mitre.synthea.world.concepts;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -16,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 import org.mitre.synthea.helpers.Utilities;
 import org.mitre.synthea.world.agents.Clinician;
@@ -27,7 +33,7 @@ import org.mitre.synthea.world.agents.Provider;
  * class represents a logical health record. Exporters will convert this health
  * record into various standardized formats.
  */
-public class HealthRecord {
+public class HealthRecord implements Serializable {
 
   public static final String ENCOUNTERS = "encounters";
   public static final String PROCEDURES = "procedures";
@@ -37,7 +43,7 @@ public class HealthRecord {
   /**
    * HealthRecord.Code represents a system, code, and display value.
    */
-  public static class Code implements Comparable<Code> {
+  public static class Code implements Comparable<Code>, Serializable {
     /** Code System (e.g. LOINC, RxNorm, SNOMED) identifier (typically a URI) */
     public String system;
     /** The code itself. */
@@ -101,7 +107,7 @@ public class HealthRecord {
    * Observations, Reports, Medications, etc. All Entries have a name, start and
    * stop times, a type, and a list of associated codes.
    */
-  public class Entry {
+  public class Entry implements Serializable {
     /** reference to the HealthRecord this entry belongs to. */
     HealthRecord record = HealthRecord.this;
     public String fullUrl;
@@ -137,6 +143,16 @@ public class HealthRecord {
         this.determineCost();
       }
       return this.cost;
+    }
+
+    /**
+     * Determines if the given entry contains the provided code in its list of codes.
+     * @param code clinical term
+     * @param system system for the code
+     * @return true if the code is there
+     */
+    public boolean containsCode(String code, String system) {
+      return this.codes.stream().anyMatch(c -> code.equals(c.code) && system.equals(c.system));
     }
 
     /**
@@ -180,7 +196,7 @@ public class HealthRecord {
   public class Medication extends Entry {
     public List<Code> reasons;
     public Code stopReason;
-    public JsonObject prescriptionDetails;
+    public transient JsonObject prescriptionDetails;
     public Claim claim;
     public boolean administration;
     public boolean chronic;
@@ -193,6 +209,32 @@ public class HealthRecord {
       this.reasons = new ArrayList<Code>();
       // Create a medication claim.
       this.claim = new Claim(this, person);
+    }
+    
+    /**
+     * Java Serialization support for the prescriptionDetails field.
+     * @param oos stream to write to
+     */
+    private void writeObject(ObjectOutputStream oos) throws IOException {
+      oos.defaultWriteObject();
+      if (prescriptionDetails != null) {
+        oos.writeObject(prescriptionDetails.toString());
+      } else {
+        oos.writeObject(null);
+      }
+    }
+    
+    /**
+     * Java Serialization support for the prescriptionDetails field.
+     * @param ois stream to read from
+     */
+    private void readObject(ObjectInputStream ois) throws ClassNotFoundException, IOException {
+      ois.defaultReadObject();
+      String prescriptionJson = (String) ois.readObject();
+      if (prescriptionJson != null) {
+        Gson gson = Utilities.getGson();
+        this.prescriptionDetails = gson.fromJson(prescriptionJson, JsonObject.class);
+      }
     }
   }
 
@@ -225,7 +267,7 @@ public class HealthRecord {
   public class CarePlan extends Entry {
     public Set<Code> activities;
     public List<Code> reasons;
-    public Set<JsonObject> goals;
+    public transient Set<JsonObject> goals;
     public Code stopReason;
 
     /**
@@ -236,6 +278,25 @@ public class HealthRecord {
       this.activities = new LinkedHashSet<Code>();
       this.reasons = new ArrayList<Code>();
       this.goals = new LinkedHashSet<JsonObject>();
+    }
+
+    private void writeObject(ObjectOutputStream oos) throws IOException {
+      oos.defaultWriteObject();
+      ArrayList<String> stringifiedGoals = new ArrayList<>(this.goals.size());
+      for (JsonObject o: goals) {
+        stringifiedGoals.add(o.toString());
+      }
+      oos.writeObject(stringifiedGoals);
+    }
+    
+    private void readObject(ObjectInputStream ois) throws ClassNotFoundException, IOException {
+      ois.defaultReadObject();
+      ArrayList<String> stringifiedGoals = (ArrayList<String>)ois.readObject();
+      Gson gson = Utilities.getGson();
+      this.goals = new LinkedHashSet<JsonObject>();
+      for (String stringifiedGoal: stringifiedGoals) {
+        goals.add(gson.fromJson(stringifiedGoal, JsonObject.class));
+      }
     }
   }
 
@@ -256,9 +317,9 @@ public class HealthRecord {
      * ImagingStudy.Series represents a series of images that were taken of a
      * specific part of the body.
      */
-    public class Series implements Cloneable {
+    public class Series implements Cloneable, Serializable {
       /** A randomly assigned DICOM UID. */
-      public transient String dicomUid;
+      public String dicomUid;
       /** A SNOMED-CT body structures code. */
       public Code bodySite;
       /**
@@ -293,9 +354,9 @@ public class HealthRecord {
      * ImagingStudy.Instance represents a single imaging Instance taken as part of a
      * Series of images.
      */
-    public class Instance implements Cloneable {
+    public class Instance implements Cloneable, Serializable {
       /** A randomly assigned DICOM UID. */
-      public transient String dicomUid;
+      public String dicomUid;
       /** A title for this image. */
       public String title;
       /**
@@ -321,6 +382,8 @@ public class HealthRecord {
    * or hip, heart pacemaker, or implantable defibrillator.
    */
   public class Device extends Entry {
+    public String manufacturer;
+    public String model;
     /** UDI == Unique Device Identifier. */
     public String udi;
     public long manufactureTime;
@@ -418,6 +481,7 @@ public class HealthRecord {
     public List<CarePlan> careplans;
     public List<ImagingStudy> imagingStudies;
     public List<Device> devices;
+    public List<JsonObject> supplies;
     public Claim claim; // for now assume 1 claim per encounter
     public Code reason;
     public Code discharge;
@@ -452,7 +516,68 @@ public class HealthRecord {
       careplans = new ArrayList<CarePlan>();
       imagingStudies = new ArrayList<ImagingStudy>();
       devices = new ArrayList<Device>();
+      supplies = new ArrayList<JsonObject>();
       this.claim = new Claim(this, person);
+    }
+
+    /**
+     * Add an observation to the encounter. In this case, no codes are added to the observation.
+     * It appears that some code in Synthea likes it this way (and does not like good old OO-style
+     * encapsulation).
+     * @param time The time of the observation
+     * @param type The type of the observation
+     * @param value The observation value
+     * @return The newly created observation.
+     */
+    public Observation addObservation(long time, String type, Object value) {
+      Observation observation = new Observation(time, type, value);
+      this.observations.add(observation);
+      return observation;
+    }
+
+    /**
+     * Add an observation to the encounter and uses the type to set the first code.
+     * @param time The time of the observation
+     * @param type The LOINC code for the observation
+     * @param value The observation value
+     * @param display The display text for the first code
+     * @return The newly created observation.
+     */
+    public Observation addObservation(long time, String type, Object value, String display) {
+      Observation observation = new Observation(time, type, value);
+      this.observations.add(observation);
+      observation.codes.add(new Code("LOINC", type, display));
+      return observation;
+    }
+
+    /**
+     * Find the first observation in the encounter with the given LOINC code.
+     * @param code The LOINC code to look for
+     * @return A single observation or null
+     */
+    public Observation findObservation(String code) {
+      return observations
+          .stream()
+          .filter(o -> o.type.equals(code))
+          .findFirst()
+          .orElse(null);
+    }
+
+    /**
+     * Find the encounter that happened before this one.
+     * @return The previous encounter or null if this is the first
+     */
+    public Encounter previousEncounter() {
+      if (record.encounters.size() < 2) {
+        return null;
+      } else {
+        int index = record.encounters.indexOf(this);
+        if (index == 0) {
+          return null;
+        } else {
+          return record.encounters.get(index - 1);
+        }
+      }
     }
   }
 
@@ -528,9 +653,7 @@ public class HealthRecord {
   }
 
   public Observation observation(long time, String type, Object value) {
-    Observation observation = new Observation(time, type, value);
-    currentEncounter(time).observations.add(observation);
-    return observation;
+    return currentEncounter(time).addObservation(time, type, value);
   }
 
   public Observation multiObservation(long time, String type, int numberOfObservations) {
@@ -551,10 +674,9 @@ public class HealthRecord {
   public Observation getLatestObservation(String type) {
     for (int i = encounters.size() - 1; i >= 0; i--) {
       Encounter encounter = encounters.get(i);
-      for (Observation observation : encounter.observations) {
-        if (observation.type.equals(type)) {
-          return observation;
-        }
+      Observation obs = encounter.findObservation(type);
+      if (obs != null) {
+        return obs;
       }
     }
     return null;
@@ -791,7 +913,7 @@ public class HealthRecord {
   /**
    * Remove Chronic Medication if stopped medication is a Chronic Medication.
    *
-   * @param Primary code (RxNorm) for the medication.
+   * @param type Primary code (RxNorm) for the medication.
    */
   private void chronicMedicationEnd(String type) {
     if (person.chronicMedications.containsKey(type)) {
