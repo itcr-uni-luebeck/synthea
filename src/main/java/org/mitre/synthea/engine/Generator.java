@@ -489,7 +489,7 @@ public class Generator {
           iter.remove(); // this module has completed/terminated.
         }
       }
-      encounterModule.endWellnessEncounter(person, time);
+      encounterModule.endEncounterModuleEncounters(person, time);
       person.lastUpdated = time;
       HealthRecordEditors.getInstance().executeAll(
               person, person.record, time, timestep, person.random);
