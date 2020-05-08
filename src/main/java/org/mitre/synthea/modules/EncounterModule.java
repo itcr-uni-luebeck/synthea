@@ -215,17 +215,17 @@ public final class EncounterModule extends Module {
   public void endEncounterModuleEncounters(Person person, long time) {
     if (person.attributes.get(ACTIVE_WELLNESS_ENCOUNTER) != null) {
       person.record.encounterEnd(time, EncounterType.WELLNESS);
-      person.record.encounterEnd(time, EncounterType.OUTPATIENT);
+//      person.record.encounterEnd(time, EncounterType.OUTPATIENT);
       person.attributes.remove(ACTIVE_WELLNESS_ENCOUNTER);
     }
-    if (person.attributes.get(ACTIVE_EMERGENCY_ENCOUNTER) != null) {
-      person.record.encounterEnd(time, EncounterType.EMERGENCY);
-      person.attributes.remove(ACTIVE_EMERGENCY_ENCOUNTER);
-    }
-    if (person.attributes.get(ACTIVE_URGENT_CARE_ENCOUNTER) != null) {
-      person.record.encounterEnd(time, EncounterType.URGENTCARE);
-      person.attributes.remove(ACTIVE_URGENT_CARE_ENCOUNTER);
-    }
+//    if (person.attributes.get(ACTIVE_EMERGENCY_ENCOUNTER) != null) {
+//      person.record.encounterEnd(time, EncounterType.EMERGENCY);
+//      person.attributes.remove(ACTIVE_EMERGENCY_ENCOUNTER);
+//    }
+//    if (person.attributes.get(ACTIVE_URGENT_CARE_ENCOUNTER) != null) {
+//      person.record.encounterEnd(time, EncounterType.URGENTCARE);
+//      person.attributes.remove(ACTIVE_URGENT_CARE_ENCOUNTER);
+//    }
 //    person.setCurrentEncounter(this, null);
   }
 
