@@ -385,71 +385,76 @@ public class Generator {
    */
   public Person generatePerson(int index, long personSeed) {
     Person person = null;
-    try {
-      boolean isAlive = true;
-      int tryNumber = 0; // number of tries to create these demographics
-      Random randomForDemographics = new Random(personSeed);
-      Map<String, Object> demoAttributes = randomDemographics(randomForDemographics);
+    while (person == null)
+    {
+      try {
+        boolean isAlive = true;
+        int tryNumber = 0; // number of tries to create these demographics
+        Random randomForDemographics = new Random(personSeed);
+        Map<String, Object> demoAttributes = randomDemographics(randomForDemographics);
 
-      do {
-        person = createPerson(personSeed, demoAttributes);
-        long finishTime = person.lastUpdated + timestep;
+        do {
+          person = createPerson(personSeed, demoAttributes);
+          long finishTime = person.lastUpdated + timestep;
 
-        isAlive = person.alive(finishTime);
+          isAlive = person.alive(finishTime);
 
-        if (isAlive && onlyDeadPatients) {
-          // rotate the seed so the next attempt gets a consistent but different one
-          personSeed = new Random(personSeed).nextLong();
-          continue;
-          // skip the other stuff if the patient is alive and we only want dead patients
-          // note that this skips ahead to the while check and doesn't automatically re-loop
-        }
-
-        if (!isAlive && onlyAlivePatients) {
-          // rotate the seed so the next attempt gets a consistent but different one
-          personSeed = new Random(personSeed).nextLong();
-          continue;
-          // skip the other stuff if the patient is dead and we only want alive patients
-          // note that this skips ahead to the while check and doesn't automatically re-loop
-        }
-
-        recordPerson(person, index);
-        
-        tryNumber++;
-        if (!isAlive) {
-          // rotate the seed so the next attempt gets a consistent but different one
-          personSeed = new Random(personSeed).nextLong();
-          
-          // if we've tried and failed > 10 times to generate someone over age 90
-          // and the options allow for ages as low as 85
-          // reduce the age to increase the likelihood of success
-          if (tryNumber > 10 && (int)person.attributes.get(TARGET_AGE) > 90
-              && (!options.ageSpecified || options.minAge <= 85)) {
-            // pick a new target age between 85 and 90
-            int newTargetAge = randomForDemographics.nextInt(5) + 85;
-            // the final age bracket is 85-110, but our patients rarely break 100
-            // so reducing a target age to 85-90 shouldn't affect numbers too much
-            demoAttributes.put(TARGET_AGE, newTargetAge);
-            long birthdate = birthdateFromTargetAge(newTargetAge, randomForDemographics);
-            demoAttributes.put(Person.BIRTHDATE, birthdate);
+          if (isAlive && onlyDeadPatients) {
+            // rotate the seed so the next attempt gets a consistent but different one
+            personSeed = new Random(personSeed).nextLong();
+            continue;
+            // skip the other stuff if the patient is alive and we only want dead patients
+            // note that this skips ahead to the while check and doesn't automatically re-loop
           }
-        }
 
-        // TODO - export is DESTRUCTIVE when it filters out data
-        // this means export must be the LAST THING done with the person
-        Exporter.export(person, finishTime, exporterRuntimeOptions);
-      } while ((!isAlive && !onlyDeadPatients && this.options.overflow)
-          || (isAlive && onlyDeadPatients));
-      // if the patient is alive and we want only dead ones => loop & try again
-      //  (and dont even export, see above)
-      // if the patient is dead and we only want dead ones => done
-      // if the patient is dead and we want live ones => loop & try again
-      //  (but do export the record anyway)
-      // if the patient is alive and we want live ones => done
-    } catch (Throwable e) {
-      // lots of fhir things throw errors for some reason
-      e.printStackTrace();
-      throw e;
+          if (!isAlive && onlyAlivePatients) {
+            // rotate the seed so the next attempt gets a consistent but different one
+            personSeed = new Random(personSeed).nextLong();
+            continue;
+            // skip the other stuff if the patient is dead and we only want alive patients
+            // note that this skips ahead to the while check and doesn't automatically re-loop
+          }
+
+          recordPerson(person, index);
+
+          tryNumber++;
+          if (!isAlive) {
+            // rotate the seed so the next attempt gets a consistent but different one
+            personSeed = new Random(personSeed).nextLong();
+
+            // if we've tried and failed > 10 times to generate someone over age 90
+            // and the options allow for ages as low as 85
+            // reduce the age to increase the likelihood of success
+            if (tryNumber > 10 && (int)person.attributes.get(TARGET_AGE) > 90
+                && (!options.ageSpecified || options.minAge <= 85)) {
+              // pick a new target age between 85 and 90
+              int newTargetAge = randomForDemographics.nextInt(5) + 85;
+              // the final age bracket is 85-110, but our patients rarely break 100
+              // so reducing a target age to 85-90 shouldn't affect numbers too much
+              demoAttributes.put(TARGET_AGE, newTargetAge);
+              long birthdate = birthdateFromTargetAge(newTargetAge, randomForDemographics);
+              demoAttributes.put(Person.BIRTHDATE, birthdate);
+            }
+          }
+
+          // TODO - export is DESTRUCTIVE when it filters out data
+          // this means export must be the LAST THING done with the person
+          Exporter.export(person, finishTime, exporterRuntimeOptions);
+        } while ((!isAlive && !onlyDeadPatients && this.options.overflow)
+            || (isAlive && onlyDeadPatients));
+        // if the patient is alive and we want only dead ones => loop & try again
+        //  (and dont even export, see above)
+        // if the patient is dead and we only want dead ones => done
+        // if the patient is dead and we want live ones => loop & try again
+        //  (but do export the record anyway)
+        // if the patient is alive and we want live ones => done
+      } catch (Throwable e) {
+        // lots of fhir things throw errors for some reason
+        e.printStackTrace();
+//        throw e;
+        person = null;
+        personSeed = new Random(personSeed).nextLong();
+      }
     }
     return person;
   }
