@@ -54,10 +54,10 @@ public final class EncounterModule extends Module {
     if (!person.alive(time)) {
       return true;
     }
-    if (person.hasCurrentEncounter()) {
-      // Don't start a new encounter here if there is already an active encounter
-      return false;
-    }
+//    if (person.hasCurrentEncounter()) {
+//      // Don't start a new encounter here if there is already an active encounter
+//      return false;
+//    }
     boolean startedEncounter = false;
     Encounter encounter = null;
 
