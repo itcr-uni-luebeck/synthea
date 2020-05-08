@@ -134,7 +134,7 @@ public class AppTest {
     Assert.assertTrue(matches.find());
     int alive = Integer.parseInt(matches.group(1));
     int dead = Integer.parseInt(matches.group(2));    
-    Assert.assertEquals(alive + dead, 3);
+    Assert.assertEquals(String.format("Expected 3 total records, got %d alive and %d dead", alive, dead), alive + dead, 3);
     System.setOut(original);
   }
 
