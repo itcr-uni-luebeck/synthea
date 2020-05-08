@@ -112,7 +112,7 @@ public final class EncounterModule extends Module {
     }
 
     if (startedEncounter) {
-      person.setCurrentEncounter(this, encounter);
+//      person.setCurrentEncounter(this, encounter);
       CardiovascularDiseaseModule.performEncounter(person, time, encounter);
       Immunizations.performEncounter(person, time);
     }
@@ -226,7 +226,7 @@ public final class EncounterModule extends Module {
       person.record.encounterEnd(time, EncounterType.URGENTCARE);
       person.attributes.remove(ACTIVE_URGENT_CARE_ENCOUNTER);
     }
-    person.setCurrentEncounter(this, null);
+//    person.setCurrentEncounter(this, null);
   }
 
   /**
