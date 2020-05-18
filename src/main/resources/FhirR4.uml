@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Diagram>
+  <ID>JAVA</ID>
+  <OriginalElement>org.mitre.synthea.export.FhirR4</OriginalElement>
+  <nodes>
+    <node x="0.0" y="257.0">org.mitre.synthea.export.FhirR4DeKDSImplementationGuide</node>
+    <node x="316.0" y="0.0">org.mitre.synthea.export.FhirR4Specialisation</node>
+    <node x="632.0" y="279.0">org.mitre.synthea.export.FhirR4UsCoreImplementationGuide</node>
+    <node x="0.0" y="465.0">org.mitre.synthea.export.FhirR4</node>
+  </nodes>
+  <notes />
+  <edges>
+    <edge source="org.mitre.synthea.export.FhirR4UsCoreImplementationGuide" target="org.mitre.synthea.export.FhirR4Specialisation">
+      <point x="0.0" y="-59.5" />
+      <point x="938.0" y="232.0" />
+      <point x="775.0" y="232.0" />
+      <point x="153.0" y="103.5" />
+    </edge>
+    <edge source="org.mitre.synthea.export.FhirR4DeKDSImplementationGuide" target="org.mitre.synthea.export.FhirR4Specialisation">
+      <point x="0.0" y="-81.5" />
+      <point x="306.0" y="232.0" />
+      <point x="469.0" y="232.0" />
+      <point x="-153.0" y="103.5" />
+    </edge>
+  </edges>
+  <settings layout="Hierarchic Group" zoom="0.7000000000000001" x="525.7142857142857" y="289.4285714285714" />
+  <SelectedNodes />
+  <Categories>
+    <Category>Fields</Category>
+    <Category>Methods</Category>
+  </Categories>
+  <SCOPE>All</SCOPE>
+  <VISIBILITY>protected</VISIBILITY>
+</Diagram>
+
