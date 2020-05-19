@@ -18,6 +18,8 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
   private static final Table<String, String, String> US_CORE_MAPPING =
       FhirR4.loadMapping("us_core_mapping.csv");
+
+  @SuppressWarnings("rawtypes")
   private static final Map raceEthnicityCodes = loadRaceEthnicityCodes();
 
   @SuppressWarnings({"rawtypes", "DuplicatedCode"})
@@ -36,11 +38,10 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
   //endregion
 
-  //region BASIC INFO
+  //region BASIC_INFO
 
   @Override
-  public Patient basicInfoExtension(Person person,
-                                    Patient patientResource,
+  public Patient basicInfoExtension(Patient patientResource, Person person,
                                     long stopTime) {
 
     patientResource = basicInfoForbidden(patientResource);
@@ -165,8 +166,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
   //region ENCOUNTER
 
   @Override
-  public Encounter encounterExtension(Person person,
-                                      Encounter encounterResource,
+  public Encounter encounterExtension(Encounter encounterResource, Person person,
                                       Patient patientResource,
                                       Bundle bundle,
                                       HealthRecord.Encounter encounter) {
@@ -212,6 +212,70 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     return conditionResource;
   }
 
+  //endregion
+
+  //region ALLERGY
+
+  @Override
+  public AllergyIntolerance allergyExtension(AllergyIntolerance allergyResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Entry allergy) {
+    allergyResource = allergyForbidden(allergyResource);
+    allergyResource.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance"));
+    return allergyResource;
+  }
+
+  //endregion
+
+  //region OBSERVATION
+
+  @Override
+  public Observation observationExtension(Observation observationResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Observation observation) {
+
+    observationResource = observationForbidden(observationResource);
+
+    Meta meta = new Meta();
+    // add the specific profile based on code
+    HealthRecord.Code code = observation.codes.get(0);
+    String codeMappingUri = US_CORE_MAPPING != null ? US_CORE_MAPPING.get(FhirR4.LOINC_URI, code.code) : null;
+    if (codeMappingUri != null) {
+      meta.addProfile(codeMappingUri);
+      if (!codeMappingUri.contains("/us/core/") && observation.category.equals("vital-signs")) {
+        meta.addProfile("http://hl7.org/fhir/StructureDefinition/vitalsigns");
+      }
+    } else if (observation.report != null && observation.category.equals("laboratory")) {
+      meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab");
+    }
+    if (meta.hasProfile()) {
+      observationResource.setMeta(meta);
+    }
+
+    return observationResource;
+  }
+
+  //endregion
+
+  //region PROCEDURE
+
+  @Override
+  public Procedure procedureExtension(Procedure procedureResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Procedure procedure) {
+    procedureResource = procedureForbidden(procedureResource);
+    procedureResource.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-procedure"));
+
+    //add the location of the procedure
+    Encounter encounterResource = (Encounter) encounterEntry.getResource();
+    procedureResource.setLocation(encounterResource.getLocationFirstRep().getLocation());
+
+    return procedureResource;
+  }
+
+  //endregion
+
+  //region DEVICE
+  @Override
+  public Device deviceExtension(Device deviceResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, HealthRecord.Device device) {
+    deviceResource = deviceForbidden(deviceResource);
+    deviceResource.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device"));
+    return deviceResource;
+  }
   //endregion
 
 }

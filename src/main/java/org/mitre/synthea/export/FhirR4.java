@@ -153,7 +153,7 @@ public class FhirR4 {
   private static final FhirContext FHIR_CTX = FhirContext.forR4();
 
   private static final String SNOMED_URI = "http://snomed.info/sct";
-  private static final String LOINC_URI = "http://loinc.org";
+  protected static final String LOINC_URI = "http://loinc.org";
   private static final String RXNORM_URI = "http://www.nlm.nih.gov/research/umls/rxnorm";
   private static final String CVX_URI = "http://hl7.org/fhir/sid/cvx";
   private static final String DISCHARGE_URI = "http://www.nubc.org/patient-discharge";
@@ -275,7 +275,7 @@ public class FhirR4 {
       }
 
       for (HealthRecord.Entry allergy : encounter.allergies) {
-        allergy(personEntry, bundle, encounterEntry, allergy); //TODO allergy
+        allergy(personEntry, bundle, encounterEntry, allergy); //DONE allergy [JW 2020-05-18]
       }
 
       for (Observation observation : encounter.observations) {
@@ -289,7 +289,7 @@ public class FhirR4 {
       }
 
       for (Procedure procedure : encounter.procedures) {
-        procedure(personEntry, bundle, encounterEntry, procedure); //TODO procedure
+        procedure(personEntry, bundle, encounterEntry, procedure); //DONE procedure [JW 2020-05-18]
       }
 
       for (HealthRecord.Device device : encounter.devices) {
@@ -556,8 +556,7 @@ public class FhirR4 {
     }
 
     if (fhirR4Specialisation != null) {
-      patientResource = fhirR4Specialisation.basicInfoExtension(person, patientResource, stopTime);
-      patientResource = fhirR4Specialisation.basicInfoForbidden(patientResource);
+      patientResource = fhirR4Specialisation.basicInfoExtension(patientResource, person, stopTime);
     }
 
     return newEntry(bundle, patientResource, (String) person.attributes.get(Person.ID));
@@ -665,7 +664,7 @@ public class FhirR4 {
 
     if (fhirR4Specialisation != null) {
       encounterResource = fhirR4Specialisation
-          .encounterExtension(person, encounterResource, patient, bundle, encounter);
+          .encounterExtension(encounterResource, person, patient, bundle, encounter);
     }
 
     BundleEntryComponent entry = newEntry(bundle, encounterResource);
@@ -1266,7 +1265,9 @@ public class FhirR4 {
       status.getCodingFirstRep().setCode("resolved");
     }
 
-    conditionResource = fhirR4Specialisation.conditionExtension(conditionResource, personEntry, bundle, encounterEntry, condition);
+    if (fhirR4Specialisation != null) {
+      conditionResource = fhirR4Specialisation.conditionExtension(conditionResource, personEntry, bundle, encounterEntry, condition);
+    }
 
     BundleEntryComponent conditionEntry = newEntry(bundle, conditionResource);
 
@@ -1316,11 +1317,9 @@ public class FhirR4 {
     Code code = allergy.codes.get(0);
     allergyResource.setCode(mapCodeToCodeableConcept(code, SNOMED_URI));
 
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance");
-      allergyResource.setMeta(meta);
+    if (fhirR4Specialisation != null) {
+      allergyResource = fhirR4Specialisation
+          .allergyExtension(allergyResource, personEntry, bundle, encounterEntry, allergy);
     }
     BundleEntryComponent allergyEntry = newEntry(bundle, allergyResource);
     allergy.fullUrl = allergyEntry.getFullUrl();
@@ -1382,22 +1381,7 @@ public class FhirR4 {
     observationResource.setEffective(convertFhirDateTime(observation.start, true));
     observationResource.setIssued(new Date(observation.start));
 
-    if (USE_US_CORE_IG) {
-      /*Meta meta = new Meta();
-      // add the specific profile based on code
-      String codeMappingUri = US_CORE_MAPPING.get(LOINC_URI, code.code);
-      if (codeMappingUri != null) {
-        meta.addProfile(codeMappingUri);
-        if (!codeMappingUri.contains("/us/core/") && observation.category.equals("vital-signs")) {
-          meta.addProfile("http://hl7.org/fhir/StructureDefinition/vitalsigns");
-        }
-      } else if (observation.report != null && observation.category.equals("laboratory")) {
-        meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab");
-      }
-      if (meta.hasProfile()) {
-        observationResource.setMeta(meta);
-      }*/
-    } else if (USE_SHR_EXTENSIONS) {
+    if (USE_SHR_EXTENSIONS) {
       Meta meta = new Meta();
       meta.addProfile(SHR_EXT + "shr-finding-Observation"); // all Observations are Observations
       if ("vital-signs".equals(observation.category)) {
@@ -1409,6 +1393,10 @@ public class FhirR4 {
         meta.addProfile(codeMappingUri);
       }
       observationResource.setMeta(meta);
+    }
+
+    if (fhirR4Specialisation != null) {
+      observationResource = fhirR4Specialisation.observationExtension(observationResource, personEntry, bundle, encounterEntry, observation);
     }
 
     BundleEntryComponent entry = newEntry(bundle, observationResource);
@@ -1490,20 +1478,10 @@ public class FhirR4 {
   private static BundleEntryComponent procedure(BundleEntryComponent personEntry, Bundle bundle,
                                                 BundleEntryComponent encounterEntry, Procedure procedure) {
     org.hl7.fhir.r4.model.Procedure procedureResource = new org.hl7.fhir.r4.model.Procedure();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-procedure");
-      procedureResource.setMeta(meta);
-    }
+
     procedureResource.setStatus(ProcedureStatus.COMPLETED);
     procedureResource.setSubject(new Reference(personEntry.getFullUrl()));
     procedureResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
-    if (USE_US_CORE_IG) {
-      org.hl7.fhir.r4.model.Encounter encounterResource =
-          (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
-      procedureResource.setLocation(encounterResource.getLocationFirstRep().getLocation());
-    }
 
     Code code = procedure.codes.get(0);
     CodeableConcept procCode = mapCodeToCodeableConcept(code, SNOMED_URI);
@@ -1546,6 +1524,11 @@ public class FhirR4 {
       procedureResource.addExtension(performedContext);
     }
 
+    if (fhirR4Specialisation != null) {
+      procedureResource = fhirR4Specialisation
+          .procedureExtension(procedureResource, personEntry, bundle, encounterEntry, procedure);
+    }
+
     BundleEntryComponent procedureEntry = newEntry(bundle, procedureResource);
     procedure.fullUrl = procedureEntry.getFullUrl();
 
@@ -1563,11 +1546,6 @@ public class FhirR4 {
   private static BundleEntryComponent device(BundleEntryComponent personEntry, Bundle bundle,
                                              HealthRecord.Device device) {
     Device deviceResource = new Device();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile("http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device");
-      deviceResource.setMeta(meta);
-    }
     deviceResource.addUdiCarrier()
         .setDeviceIdentifier(device.deviceIdentifier)
         .setCarrierHRF(device.udi);
@@ -1588,6 +1566,11 @@ public class FhirR4 {
         .setType(DeviceNameType.USERFRIENDLYNAME);
     deviceResource.setType(mapCodeToCodeableConcept(device.codes.get(0), SNOMED_URI));
     deviceResource.setPatient(new Reference(personEntry.getFullUrl()));
+
+    if (fhirR4Specialisation != null) {
+      deviceResource = fhirR4Specialisation.deviceExtension(deviceResource, personEntry, bundle, device);
+    }
+
     return newEntry(bundle, deviceResource);
   }
 
