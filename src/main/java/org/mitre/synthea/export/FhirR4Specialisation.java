@@ -21,7 +21,7 @@ public interface FhirR4Specialisation {
    *
    * @param profileURI the URI of the StructureDefinition this resource claims to conform to
    * @return a Meta instance with the given profileURI
-   * @implNote Usage: resource.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance"))
+   * implNote Usage: resource.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance"))
    */
   default Meta getConformanceToProfileMeta(String profileURI) {
     return new Meta().addProfile(profileURI);
@@ -44,7 +44,7 @@ public interface FhirR4Specialisation {
    *
    * @param patientResource the resource to remove from
    * @return the cleaned-up patient resource
-   * @implNote passes the encounter through if nothing is forbidden for this IG
+   * implNote passes the encounter through if nothing is forbidden for this IG
    */
   default Patient basicInfoForbidden(Patient patientResource) {
     return patientResource; //pass through if nothing is forbidden
@@ -89,7 +89,7 @@ public interface FhirR4Specialisation {
    *
    * @param encounterResource the encounter resource that is rendered
    * @return the modified encounter resource
-   * @implNote passes the encounter through if nothing is forbidden for this IG
+   * implNote passes the encounter through if nothing is forbidden for this IG
    */
   default Encounter encounterForbidden(Encounter encounterResource) {
     return encounterResource; //pass through if nothing is forbidden
@@ -119,7 +119,7 @@ public interface FhirR4Specialisation {
    *
    * @param conditionResource the resource to clean
    * @return the cleaned resource
-   * @implNote default implementation passes the condition through unmodified, i.e. everything is allowed
+   * implNote default implementation passes the condition through unmodified, i.e. everything is allowed
    */
   default Condition conditionForbidden(Condition conditionResource) {
     return conditionResource;
