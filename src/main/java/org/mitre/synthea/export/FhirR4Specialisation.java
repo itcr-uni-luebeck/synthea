@@ -15,7 +15,6 @@ import java.util.stream.Stream;
  */
 public interface FhirR4Specialisation {
 
-  //region UTILS
   /**
    * generate a Meta instance that claims conformance to the given profile definition
    *
@@ -26,9 +25,9 @@ public interface FhirR4Specialisation {
   default Meta getConformanceToProfileMeta(String profileURI) {
     return new Meta().addProfile(profileURI);
   }
-  //endregion
 
-  //region BASIC INFO
+  boolean handles(ResourceType resourceType);
+
   /**
    * Extension to FhirR4 for adding basic info required by an IG
    *
@@ -37,7 +36,11 @@ public interface FhirR4Specialisation {
    * @param stopTime        Time the simulation ended
    * @return the created patient entry
    */
-  Patient basicInfoExtension(Patient patientResource, Person person, long stopTime);
+  default Patient basicInfoExtension(Patient patientResource, Person person, long stopTime) {
+    return basicInfoForbidden(patientResource);
+  }
+
+  //region BASIC INFO
 
   /**
    * Remove attributes/resources that are forbidden by the IG
@@ -49,6 +52,8 @@ public interface FhirR4Specialisation {
   default Patient basicInfoForbidden(Patient patientResource) {
     return patientResource; //pass through if nothing is forbidden
   }
+
+  ;
 
   /**
    * remove all identifiers that do not feature a System in the whitelist.
@@ -65,9 +70,7 @@ public interface FhirR4Specialisation {
         .collect(Collectors.toList());
     patientResource.setIdentifier(identifier);
   }
-  //endregion
 
-  //region ENCOUNTER
   /**
    * add specific elements to the encounter
    *
@@ -78,11 +81,16 @@ public interface FhirR4Specialisation {
    * @param encounter         the encounter from Synthea's model
    * @return the modified encounter
    */
-  Encounter encounterExtension(Encounter encounterResource,
-                               Person person,
-                               Patient patientResource,
-                               Bundle bundle,
-                               HealthRecord.Encounter encounter);
+  default Encounter encounterExtension(Encounter encounterResource,
+                                       Person person,
+                                       Patient patientResource,
+                                       Bundle bundle,
+                                       HealthRecord.Encounter encounter) {
+    return encounterForbidden(encounterResource);
+  }
+  //endregion
+
+  //region ENCOUNTER
 
   /**
    * Remove attributes/resources that are forbidden by the IG in the encounter resource
@@ -94,9 +102,9 @@ public interface FhirR4Specialisation {
   default Encounter encounterForbidden(Encounter encounterResource) {
     return encounterResource; //pass through if nothing is forbidden
   }
-  //endregion
 
-  //region CONDITION
+  ;
+
   /**
    * add specific elements to the encounter
    *
@@ -107,12 +115,17 @@ public interface FhirR4Specialisation {
    * @param condition         the condition of the subject
    * @return the modified conditionResource
    */
-  Condition conditionExtension(
+  default Condition conditionExtension(
       Condition conditionResource,
       Bundle.BundleEntryComponent personEntry,
       Bundle bundle,
       Bundle.BundleEntryComponent encounterEntry,
-      HealthRecord.Entry condition);
+      HealthRecord.Entry condition) {
+    return conditionForbidden(conditionResource);
+  }
+  //endregion
+
+  //region CONDITION
 
   /**
    * remove forbidden elements from the condition resource
@@ -124,9 +137,9 @@ public interface FhirR4Specialisation {
   default Condition conditionForbidden(Condition conditionResource) {
     return conditionResource;
   }
-  //endregion
 
-  //region ALLERGY
+  ;
+
   /**
    * IG-specific extensions for AllergyIntolerance
    *
@@ -137,11 +150,16 @@ public interface FhirR4Specialisation {
    * @param allergy         the allergy that is being encoded
    * @return the modified allergyResource
    */
-  AllergyIntolerance allergyExtension(AllergyIntolerance allergyResource,
-                                      Bundle.BundleEntryComponent personEntry,
-                                      Bundle bundle,
-                                      Bundle.BundleEntryComponent encounterEntry,
-                                      HealthRecord.Entry allergy);
+  default AllergyIntolerance allergyExtension(AllergyIntolerance allergyResource,
+                                              Bundle.BundleEntryComponent personEntry,
+                                              Bundle bundle,
+                                              Bundle.BundleEntryComponent encounterEntry,
+                                              HealthRecord.Entry allergy) {
+    return allergyResource;
+  }
+  //endregion
+
+  //region ALLERGY
 
   /**
    * remove forbidden elements from the AllergyIntolerance resource
@@ -152,22 +170,24 @@ public interface FhirR4Specialisation {
   default AllergyIntolerance allergyForbidden(AllergyIntolerance allergyIntolerance) {
     return allergyIntolerance;
   }
-  //endregion
+
+  ;
 
   //region OBSERVATION
-  Observation observationExtension(
+  default Observation observationExtension(
       Observation observationResource,
       Bundle.BundleEntryComponent personEntry,
       Bundle bundle,
       Bundle.BundleEntryComponent encounterEntry,
-      HealthRecord.Observation observation);
-
-  default Observation observationForbidden(Observation observationResource) {
+      HealthRecord.Observation observation) {
     return observationResource;
   }
   //endregion
 
-  //region PROCEDURE
+  default Observation observationForbidden(Observation observationResource) {
+    return observationResource;
+  }
+
   /**
    * IG-specific extensions for the Procedure resource
    *
@@ -178,7 +198,16 @@ public interface FhirR4Specialisation {
    * @param procedure         the procedure that is being rendered
    * @return the modified procedure
    */
-  Procedure procedureExtension(Procedure procedureResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Procedure procedure);
+  default Procedure procedureExtension(Procedure procedureResource,
+                                       Bundle.BundleEntryComponent personEntry,
+                                       Bundle bundle,
+                                       Bundle.BundleEntryComponent encounterEntry,
+                                       HealthRecord.Procedure procedure) {
+    return procedureForbidden(procedureResource);
+  }
+  //endregion
+
+  //region PROCEDURE
 
   /**
    * remove forbidden elements from the procedure resource
@@ -189,27 +218,71 @@ public interface FhirR4Specialisation {
   default Procedure procedureForbidden(Procedure procedureResource) {
     return procedureResource;
   }
-  //endregion
 
-  //region DEVICE
   /**
    * IG-specific extensions for the device resource
    *
    * @param deviceResource the device resource being modified
-   * @param personEntry the person that is being referenced
-   * @param bundle the bundle being added to
-   * @param device the device being rendered
+   * @param personEntry    the person that is being referenced
+   * @param bundle         the bundle being added to
+   * @param device         the device being rendered
    * @return the modified resource
    */
-  Device deviceExtension(Device deviceResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, HealthRecord.Device device);
+  default Device deviceExtension(Device deviceResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, HealthRecord.Device device) {
+    return deviceForbidden(deviceResource);
+  }
+  //endregion
+
+  //region DEVICE
 
   /**
    * remove forbidden data from the device resources
+   *
    * @param deviceResource the resource being modified
    * @return the resource
    */
   default Device deviceForbidden(Device deviceResource) {
     return deviceResource;
   }
+
+  default SupplyDelivery supplyDeliveryExtension(SupplyDelivery supplyDelivery,
+                                                 Bundle.BundleEntryComponent personEntry,
+                                                 Bundle bundle,
+                                                 HealthRecord.Supply supply,
+                                                 HealthRecord.Encounter encounter) {
+    return supplyDeliveryForbidden(supplyDelivery);
+  }
+  //endregion
+
+  //region SUPPLY_DELIVERY
+
+  default SupplyDelivery supplyDeliveryForbidden(SupplyDelivery supplyDelivery) {
+    return supplyDelivery;
+  }
+
+  //region MEDICATION_REQUEST
+  default public MedicationRequest medicationRequestExtension(
+      MedicationRequest medicationRequest,
+      Person person,
+      Bundle.BundleEntryComponent personEntry,
+      Bundle bundle,
+      Bundle.BundleEntryComponent encounterEntry,
+      HealthRecord.Medication medication
+  ) {
+    return medicationRequestForbidden(medicationRequest);
+  }
+
+  default MedicationRequest medicationRequestForbidden(MedicationRequest medicationRequest) {
+    return medicationRequest;
+  };
+  //endregion
+
+  enum ResourceType {
+    BASIC_INFO, ENCOUNTER, CONDITION, ALLERGY, OBSERVATION,
+    PROCEDURE, DEVICE, SUPPLY_DELIVERY, MEDICATION_REQUEST,
+    IMMUNIZATION, REPORT, CARE_TEAM, CARE_PLAN, IMAGING_STUDY,
+    CLINICAL_NOTE, CLAIM, EXPLANATION_OF_BENEFIT, PROVENANCE
+  }
+
   //endregion
 }
