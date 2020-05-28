@@ -152,15 +152,15 @@ public class FhirR4 {
   // per-application, not per-record
   private static final FhirContext FHIR_CTX = FhirContext.forR4();
 
-  private static final String SNOMED_URI = "http://snomed.info/sct";
+  protected static final String SNOMED_URI = "http://snomed.info/sct";
   protected static final String LOINC_URI = "http://loinc.org";
-  private static final String RXNORM_URI = "http://www.nlm.nih.gov/research/umls/rxnorm";
-  private static final String CVX_URI = "http://hl7.org/fhir/sid/cvx";
-  private static final String DISCHARGE_URI = "http://www.nubc.org/patient-discharge";
-  private static final String SHR_EXT = "http://standardhealthrecord.org/fhir/StructureDefinition/";
-  private static final String SYNTHEA_EXT = "http://synthetichealth.github.io/synthea/";
-  private static final String UNITSOFMEASURE_URI = "http://unitsofmeasure.org";
-  private static final String DICOM_DCM_URI = "http://dicom.nema.org/resources/ontology/DCM";
+  protected static final String RXNORM_URI = "http://www.nlm.nih.gov/research/umls/rxnorm";
+  protected static final String CVX_URI = "http://hl7.org/fhir/sid/cvx";
+  protected static final String DISCHARGE_URI = "http://www.nubc.org/patient-discharge";
+  protected static final String SHR_EXT = "http://standardhealthrecord.org/fhir/StructureDefinition/";
+  protected static final String SYNTHEA_EXT = "http://synthetichealth.github.io/synthea/";
+  protected static final String UNITSOFMEASURE_URI = "http://unitsofmeasure.org";
+  protected static final String DICOM_DCM_URI = "http://dicom.nema.org/resources/ontology/DCM";
   private static final String MEDIA_TYPE_URI = "http://terminology.hl7.org/CodeSystem/media-type";
 
   @SuppressWarnings("rawtypes")
@@ -195,6 +195,10 @@ public class FhirR4 {
       e.printStackTrace();
       throw new ExceptionInInitializerError(e);
     }
+  }
+
+  private static boolean specialisationHandlesResourceType(FhirR4Specialisation.ResourceType resourceType) {
+    return fhirR4Specialisation == null || fhirR4Specialisation.handles(resourceType);
   }
 
   /**
@@ -293,15 +297,15 @@ public class FhirR4 {
       }
 
       for (HealthRecord.Device device : encounter.devices) {
-        device(personEntry, bundle, device); //TODO devices
+        device(personEntry, bundle, device); //DONE devices [JW 2020-05-28]
       }
 
       for (HealthRecord.Supply supply : encounter.supplies) {
-        supplyDelivery(personEntry, bundle, supply, encounter); //TODO supplyDelivery
+        supplyDelivery(personEntry, bundle, supply, encounter); //DONE supplyDelivery [JW 2020-05-28]
       }
 
       for (Medication medication : encounter.medications) {
-        medicationRequest(person, personEntry, bundle, encounterEntry, medication); //TODO medicationRequest
+        medicationRequest(person, personEntry, bundle, encounterEntry, medication); //TODO medicationRequest [WIP JW]
       }
 
       for (HealthRecord.Entry immunization : encounter.immunizations) {
@@ -1723,12 +1727,7 @@ public class FhirR4 {
       Person person, BundleEntryComponent personEntry, Bundle bundle,
       BundleEntryComponent encounterEntry, Medication medication) {
     MedicationRequest medicationResource = new MedicationRequest();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest");
-      medicationResource.setMeta(meta);
-    } else if (USE_SHR_EXTENSIONS) {
+    if (USE_SHR_EXTENSIONS) {
       medicationResource.addExtension()
           .setUrl(SHR_EXT + "shr-base-ActionCode-extension")
           .setValue(PRESCRIPTION_OF_DRUG_CC);
@@ -1754,23 +1753,6 @@ public class FhirR4 {
         ? SNOMED_URI
         : RXNORM_URI;
     medicationResource.setMedication(mapCodeToCodeableConcept(code, system));
-
-    if (USE_US_CORE_IG && medication.administration) {
-      // Occasionally, rather than use medication codes, we want to use a Medication
-      // Resource. We only want to do this when we use US Core, to make sure we
-      // sometimes produce a resource for the us-core-medication profile, and the
-      // 'administration' flag is an arbitrary way to decide without flipping a coin.
-      org.hl7.fhir.r4.model.Medication drugResource =
-          new org.hl7.fhir.r4.model.Medication();
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication");
-      drugResource.setMeta(meta);
-      drugResource.setCode(mapCodeToCodeableConcept(code, system));
-      drugResource.setStatus(MedicationStatus.ACTIVE);
-      BundleEntryComponent drugEntry = newEntry(bundle, drugResource);
-      medicationResource.setMedication(new Reference(drugEntry.getFullUrl()));
-    }
 
     medicationResource.setAuthoredOn(new Date(medication.start));
     medicationResource.setIntent(MedicationRequestIntent.ORDER);
@@ -1862,11 +1844,11 @@ public class FhirR4 {
     BundleEntryComponent medicationEntry = newEntry(bundle, medicationResource);
     // create new claim for medication
     medicationClaim(person, personEntry, bundle, encounterEntry,
-        medication.claim, medicationEntry);
+        medication.claim, medicationEntry); //TODO medicationClaim
 
     // Create new administration for medication, if needed
     if (medication.administration) {
-      medicationAdministration(personEntry, bundle, encounterEntry, medication, medicationResource);
+      medicationAdministration(personEntry, bundle, encounterEntry, medication, medicationResource); //TODO medicationAdministration
     }
 
     return medicationEntry;
@@ -2747,7 +2729,7 @@ public class FhirR4 {
    * @param system The system identifier, such as a URI. Optional; may be null.
    * @return The converted CodeableConcept
    */
-  private static CodeableConcept mapCodeToCodeableConcept(Code from, String system) {
+  protected static CodeableConcept mapCodeToCodeableConcept(Code from, String system) {
     CodeableConcept to = new CodeableConcept();
     system = system == null ? null : ExportHelper.getSystemURI(system);
     from.system = ExportHelper.getSystemURI(from.system);
@@ -2779,7 +2761,7 @@ public class FhirR4 {
    * @param resource Resource the new Entry should contain
    * @return the created Entry
    */
-  private static BundleEntryComponent newEntry(Bundle bundle, Resource resource) {
+  protected static BundleEntryComponent newEntry(Bundle bundle, Resource resource) {
     String resourceID = UUID.randomUUID().toString();
     return newEntry(bundle, resource, resourceID);
   }

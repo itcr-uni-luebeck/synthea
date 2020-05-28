@@ -13,6 +13,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
+  @Override
+  public boolean handles(ResourceType resourceType) {
+    return true; //US CORE IG handles everything
+  }
 
   //region UTILITIES
 
@@ -278,4 +282,29 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
   }
   //endregion
 
+  //region MEDICATION_REQUEST
+  @Override
+  public MedicationRequest medicationRequestExtension(MedicationRequest medicationRequest, Person person, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Medication medication) {
+    medicationRequest.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest"));
+    if (medication.administration) {
+      // Occasionally, rather than use medication codes, we want to use a Medication
+      // Resource. We only want to do this when we use US Core, to make sure we
+      // sometimes produce a resource for the us-core-medication profile, and the
+      // 'administration' flag is an arbitrary way to decide without flipping a coin.
+      org.hl7.fhir.r4.model.Medication drugResource =
+          new org.hl7.fhir.r4.model.Medication();
+      drugResource.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-medication"));
+      HealthRecord.Code code = medication.codes.get(0);
+      String system = code.system.equals("SNOMED-CT")
+          ? FhirR4.SNOMED_URI
+          : FhirR4.RXNORM_URI;
+      drugResource.setCode(FhirR4.mapCodeToCodeableConcept(code, system));
+      drugResource.setStatus(Medication.MedicationStatus.ACTIVE);
+      Bundle.BundleEntryComponent drugEntry = FhirR4.newEntry(bundle, drugResource);
+      medicationRequest.setMedication(new Reference(drugEntry.getFullUrl()));
+    }
+
+    return medicationRequest;
+  }
+  //endregion
 }
