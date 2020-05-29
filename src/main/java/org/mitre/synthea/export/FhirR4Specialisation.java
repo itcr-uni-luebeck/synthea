@@ -7,6 +7,7 @@ import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.agents.Provider;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -63,11 +64,12 @@ public interface FhirR4Specialisation {
    * @param patientResource          the resource to modify
    * @param allowedIdentifierSystems the whitelist that allows identifiers for the IG
    */
-  default void removeInvalidIdentifiersBasicInfo(Patient patientResource, Stream<String> allowedIdentifierSystems) {
+  default void removeInvalidIdentifiersBasicInfo(Patient patientResource,
+                                                 List<String> allowedIdentifierSystems) {
     List<Identifier> identifier = patientResource
         .getIdentifier()
         .stream()
-        .filter(i -> allowedIdentifierSystems.anyMatch(ai -> i.getSystem().equals(ai)))
+        .filter(i -> allowedIdentifierSystems.stream().anyMatch(ai -> i.getSystem().equals(ai)))
         .collect(Collectors.toList());
     patientResource.setIdentifier(identifier);
   }

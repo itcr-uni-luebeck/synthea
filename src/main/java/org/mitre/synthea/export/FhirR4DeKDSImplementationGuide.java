@@ -4,7 +4,10 @@ import org.hl7.fhir.r4.model.*;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
+import java.lang.reflect.Array;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.stream.Stream;
 
 /**
@@ -38,8 +41,7 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
 
   @Override
   public Patient basicInfoForbidden(Patient patientResource) { //TODO
-    Stream<String> allowedIdentifiers = Arrays.stream(new String[]{
-        "http://hospital.smarthealthit.org"});
+    List<String> allowedIdentifiers = Arrays.asList("http://hospital.smarthealthit.org");
     removeInvalidIdentifiersBasicInfo(patientResource, allowedIdentifiers);
 
     return patientResource;
