@@ -7,10 +7,8 @@ import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.agents.Provider;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Extension for generating FHIR resource bundles conforming to
@@ -86,13 +84,14 @@ public interface FhirR4Specialisation {
    * @param patientResource   the patient resource this encounter refers to
    * @param bundle            the genreated bundle to add to
    * @param encounter         the encounter from Synthea's model
+   * @param encounterComponent
    * @return the modified encounter
    */
   default Encounter encounterExtension(Encounter encounterResource,
                                        Person person,
                                        Patient patientResource,
                                        Bundle bundle,
-                                       HealthRecord.Encounter encounter) {
+                                       HealthRecord.Encounter encounter, Bundle.BundleEntryComponent encounterComponent) {
     return encounterForbidden(encounterResource);
   }
 
