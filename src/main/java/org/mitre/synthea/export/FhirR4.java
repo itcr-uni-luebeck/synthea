@@ -658,12 +658,13 @@ public class FhirR4 {
       encounterResource.setHospitalization(hospitalization);
     }
 
-    if (fhirR4Specialisation != null) {
-      encounterResource = fhirR4Specialisation
-          .encounterExtension(encounterResource, person, patient, bundle, encounter);
-    }
 
-    return newEntry(bundle, encounterResource);
+    BundleEntryComponent encounterComponent = newEntry(bundle, encounterResource);
+    if (fhirR4Specialisation != null) {
+      fhirR4Specialisation.encounterExtension(encounterResource,
+          person, patient, bundle, encounter, encounterComponent);
+    }
+    return encounterComponent;
   }
 
   /**

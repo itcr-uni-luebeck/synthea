@@ -22,7 +22,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
   private static final Table<String, String, String> US_CORE_MAPPING =
       FhirR4.loadMapping("us_core_mapping.csv");
 
-  //region UTILITIES
   @SuppressWarnings("rawtypes")
   private static final Map raceEthnicityCodes = loadRaceEthnicityCodes();
 
@@ -84,10 +83,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
         .setDisplay(provider.name));
     return newEntry(bundle, location);
   }
-
-  //endregion
-
-  //region BASIC_INFO
 
   /**
    * Create a Provenance entry at the end of this Bundle that
@@ -177,10 +172,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
   }
 
-  //endregion
-
-  //region ENCOUNTER
-
   private void addBirthSex(Person person, Patient patientResource) {
     Extension birthSexExtension = new Extension(
         "http://hl7.org/fhir/us/core/StructureDefinition/us-core-birthsex");
@@ -193,10 +184,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     }
     patientResource.addExtension(birthSexExtension);
   }
-
-  //endregion
-
-  //region CONDITION
 
   private void addRace(Person person, Patient patientResource) {
     // We do not yet account for mixed race
@@ -274,15 +261,11 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     patientResource.addExtension(ethnicityExtension);
   }
 
-  //endregion
-
-  //region ALLERGY
-
   @Override
   public Encounter encounterExtension(Encounter encounterResource, Person person,
                                       Patient patientResource,
                                       Bundle bundle,
-                                      HealthRecord.Encounter encounter) {
+                                      HealthRecord.Encounter encounter, Bundle.BundleEntryComponent encounterComponent) {
     //meta: conforms to IG
     encounterResource.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-encounter"));
 
@@ -299,14 +282,10 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     encounterResource.addIdentifier()
         .setUse(Identifier.IdentifierUse.OFFICIAL)
         .setSystem("https://github.com/synthetichealth/synthea")
-        .setValue(encounterResource.getId());
+        .setValue(encounterComponent.getResource().getId());
 
     return encounterResource;
   }
-
-  //endregion
-
-  //region OBSERVATION
 
   @Override
   public Condition conditionExtension(Condition conditionResource,
@@ -323,10 +302,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     return conditionResource;
   }
 
-  //endregion
-
-  //region PROCEDURE
-
   @Override
   public AllergyIntolerance allergyExtension(AllergyIntolerance allergyResource,
                                              Bundle.BundleEntryComponent personEntry,
@@ -337,8 +312,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     allergyResource.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance"));
     return allergyResource;
   }
-
-  //endregion
 
   @Override
   public Observation observationExtension(Observation observationResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Observation observation) {
@@ -363,7 +336,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
     return observationResource;
   }
-  //endregion
 
   @Override
   public Procedure procedureExtension(Procedure procedureResource,
@@ -380,9 +352,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
     return procedureResource;
   }
-  //endregion
 
-  //region DEVICE
   @Override
   public Device deviceExtension(Device deviceResource,
                                 Bundle.BundleEntryComponent personEntry,
@@ -392,9 +362,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     deviceResource.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-implantable-device"));
     return deviceResource;
   }
-  //endregion
 
-  //region MEDICATION_REQUEST
   @Override
   public MedicationRequest medicationRequestExtension(MedicationRequest medicationRequest,
                                                       Person person,
@@ -423,9 +391,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
     return medicationRequest;
   }
-  //endregion
 
-  //region IMMUNIZATION
   @Override
   public Immunization immunizationExtension(Immunization immunizationResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Entry immunization) {
     immunizationResource.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-immunization"));
@@ -434,11 +400,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     immunizationResource.setLocation(encounterResource.getLocationFirstRep().getLocation());
     return immunizationResource;
   }
-  //endregion
 
-  //region CARE_PLAN
-
-  //region DIAGNOSTIC_REPORT
   @Override
   public DiagnosticReport diagnosticReportExtension(DiagnosticReport diagnosticReport, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Report report) {
     diagnosticReport.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab"));
@@ -447,15 +409,12 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     diagnosticReport.addPerformer(encounterResource.getServiceProvider());
     return diagnosticReport;
   }
-  //endregion
 
-  //region CARE_TEAM
   @Override
   public CareTeam careTeamExtension(CareTeam careTeam, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.CarePlan carePlan) {
     careTeam.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-careteam"));
     return careTeam;
   }
-  //endregion
 
   @Override
   public CarePlan carePlanExtension(CarePlan carePlanResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, Provider provider, Bundle.BundleEntryComponent careTeamEntry, HealthRecord.CarePlan carePlan) {
@@ -467,9 +426,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
         null));
     return carePlanResource;
   }
-  //endregion
 
-  //region IMAGING_STUDY
   @Override
   public ImagingStudy imagingStudyExtension(ImagingStudy imagingStudyResource,
                                             Bundle.BundleEntryComponent personEntry,
@@ -482,9 +439,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
     return imagingStudyResource;
   }
-  //endregion
 
-  //region ENCOUNTER_CLAIM
   @Override
   public Claim encounterClaimExtension(Claim encounterClaimResource, Person person, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, org.mitre.synthea.world.concepts.Claim claim) {
     org.hl7.fhir.r4.model.Encounter encounterResource =
@@ -493,7 +448,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     return encounterClaimResource;
   }
 
-  //region EXPLANATION_OF_BENEFIT
   @Override
   public ExplanationOfBenefit explanationOfBenefitExtension(ExplanationOfBenefit explanationResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, Person person, Bundle.BundleEntryComponent claimEntry, HealthRecord.Encounter encounter) {
     org.hl7.fhir.r4.model.Encounter encounterResource =
@@ -501,11 +455,7 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     explanationResource.setFacility(encounterResource.getLocationFirstRep().getLocation());
     return explanationResource;
   }
-  //endregion
 
-  //region PRACTITIONER
-
-  //region PROVIDER
   @Override
   public Organization providerExtension(Organization providerResource, Bundle bundle, Provider provider) {
     providerResource.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization"));
@@ -529,10 +479,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
 
     return practitionerResource;
   }
-
-  //endregion
-
-  //region CARE_GOAL
 
   @Override
   public void addPractitionerRole(Practitioner practitionerResource,
@@ -574,17 +520,12 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
     newEntry(bundle, practitionerRole);
   }
 
-  //endregion
-
   @Override
   public Goal careGoalExtension(Goal goalResource, Bundle bundle, Bundle.BundleEntryComponent personEntry, long carePlanStart, CodeableConcept goalStatus, JsonObject goal) {
     goalResource.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("\"http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal\""));
     return goalResource;
   }
 
-  //region CLINICAL_NOTE
-
-  //region OTHER_EXTENSIONS
   @Override
   public void encounterExtensions(Encounter encounterResource,
                                   Bundle.BundleEntryComponent encounterComponent,
@@ -598,7 +539,6 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
         .get(patientAgent.record.encounters.size() - 1);
     createClinicalNote(patientComponent, patientResource, encounterComponent, encounterResource, clinicalNoteText, lastNote, bundle);
   }
-  //endregion
 
   /**
    * Add a clinical note to the Bundle, which adds both a DocumentReference and a
@@ -682,5 +622,4 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
                                long stopTime) {
     provenance(bundle, person, stopTime);
   }
-  //endregion
 }
