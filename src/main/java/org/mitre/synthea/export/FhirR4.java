@@ -529,6 +529,12 @@ public class FhirR4 {
       patientResource.addExtension(ssnExtension);
     }
 
+    if (person.attributes.get(Person.GENDER).equals("M")) {
+      patientResource.setGender(AdministrativeGender.MALE);
+    } else if (person.attributes.get(Person.GENDER).equals("F")) {
+      patientResource.setGender(AdministrativeGender.FEMALE);
+    }
+
     // DALY and QALY values
     // we only write the last(current) one to the patient record
     Double dalyValue = (Double) person.attributes.get("most-recent-daly");
