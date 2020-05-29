@@ -60,14 +60,11 @@ import org.hl7.fhir.r4.model.Device.DeviceNameType;
 import org.hl7.fhir.r4.model.Device.FHIRDeviceStatus;
 import org.hl7.fhir.r4.model.DiagnosticReport;
 import org.hl7.fhir.r4.model.DiagnosticReport.DiagnosticReportStatus;
-import org.hl7.fhir.r4.model.DocumentReference;
-import org.hl7.fhir.r4.model.DocumentReference.DocumentReferenceContextComponent;
 import org.hl7.fhir.r4.model.Dosage;
 import org.hl7.fhir.r4.model.Dosage.DosageDoseAndRateComponent;
 import org.hl7.fhir.r4.model.Encounter.EncounterHospitalizationComponent;
 import org.hl7.fhir.r4.model.Encounter.EncounterStatus;
 import org.hl7.fhir.r4.model.Enumerations.AdministrativeGender;
-import org.hl7.fhir.r4.model.Enumerations.DocumentReferenceStatus;
 import org.hl7.fhir.r4.model.ExplanationOfBenefit;
 import org.hl7.fhir.r4.model.ExplanationOfBenefit.RemittanceOutcome;
 import org.hl7.fhir.r4.model.ExplanationOfBenefit.TotalComponent;
@@ -107,8 +104,6 @@ import org.hl7.fhir.r4.model.PositiveIntType;
 import org.hl7.fhir.r4.model.Practitioner;
 import org.hl7.fhir.r4.model.PractitionerRole;
 import org.hl7.fhir.r4.model.Procedure.ProcedureStatus;
-import org.hl7.fhir.r4.model.Provenance;
-import org.hl7.fhir.r4.model.Provenance.ProvenanceAgentComponent;
 import org.hl7.fhir.r4.model.Quantity;
 import org.hl7.fhir.r4.model.Reference;
 import org.hl7.fhir.r4.model.Resource;
@@ -148,10 +143,6 @@ import org.mitre.synthea.world.concepts.HealthRecord.Procedure;
 import org.mitre.synthea.world.concepts.HealthRecord.Report;
 
 public class FhirR4 {
-  // HAPI FHIR warns that the context creation is expensive, and should be performed
-  // per-application, not per-record
-  private static final FhirContext FHIR_CTX = FhirContext.forR4();
-
   protected static final String SNOMED_URI = "http://snomed.info/sct";
   protected static final String LOINC_URI = "http://loinc.org";
   protected static final String RXNORM_URI = "http://www.nlm.nih.gov/research/umls/rxnorm";
@@ -162,10 +153,18 @@ public class FhirR4 {
   protected static final String UNITSOFMEASURE_URI = "http://unitsofmeasure.org";
   protected static final String DICOM_DCM_URI = "http://dicom.nema.org/resources/ontology/DCM";
   private static final String MEDIA_TYPE_URI = "http://terminology.hl7.org/CodeSystem/media-type";
-
+  protected static final String COUNTRY_CODE = Config.get("generate.geography.country_code");
+  // HAPI FHIR warns that the context creation is expensive, and should be performed
+  // per-application, not per-record
+  private static final FhirContext FHIR_CTX = FhirContext.forR4();
   @SuppressWarnings("rawtypes")
   private static final Map languageLookup = loadLanguageLookup();
-
+  private static final Table<String, String, String> SHR_MAPPING =
+      loadMapping("shr_mapping.csv");
+  private static final Code PRESCRIPTION_OF_DRUG_CODE =
+      new Code("SNOMED-CT", "33633005", "Prescription of drug (procedure)");
+  private static final CodeableConcept PRESCRIPTION_OF_DRUG_CC =
+      mapCodeToCodeableConcept(PRESCRIPTION_OF_DRUG_CODE, SNOMED_URI);
   protected static boolean USE_SHR_EXTENSIONS =
       Boolean.parseBoolean(Config.get("exporter.fhir.use_shr_extensions"));
   protected static boolean TRANSACTION_BUNDLE =
@@ -174,14 +173,7 @@ public class FhirR4 {
       Boolean.parseBoolean(Config.get("exporter.fhir.use_us_core_ig"));
   protected static boolean USE_DE_KDS_IG =
       Boolean.parseBoolean(Config.get("exporter.fhir.use_de_kds_ig"));
-
-  private static final String COUNTRY_CODE = Config.get("generate.geography.country_code");
-
-  private static final Table<String, String, String> SHR_MAPPING =
-      loadMapping("shr_mapping.csv");
-
   protected static FhirR4Specialisation fhirR4Specialisation = null;
-
 
   @SuppressWarnings("rawtypes")
   private static Map loadLanguageLookup() {
@@ -208,7 +200,6 @@ public class FhirR4 {
    * @param provider A given provider.
    * @param bundle   The current bundle being generated.
    * @return Location.fullUrl if found, otherwise null.
-   * @implNote This methods seems inefficient and might have to be rewritten. TODO!
    */
   static String findLocationUrl(Provider provider, Bundle bundle) {
     for (Bundle.BundleEntryComponent entry : bundle.getEntry()) {
@@ -223,7 +214,6 @@ public class FhirR4 {
     }
     return null;
   }
-
 
   protected static Table<String, String, String> loadMapping(String filename) {
     Table<String, String, String> mappingTable = HashBasedTable.create();
@@ -270,18 +260,30 @@ public class FhirR4 {
     }
 
     BundleEntryComponent personEntry = basicInfo(person, bundle, stopTime); //DONE basicInfo [JW 2020-05-18]
+    org.hl7.fhir.r4.model.Patient thePersonResource = (org.hl7.fhir.r4.model.Patient) personEntry.getResource();
 
     for (Encounter encounter : person.record.encounters) {
       BundleEntryComponent encounterEntry = encounter(person, personEntry, bundle, encounter); //DONE encounter [JW 2020-05-18]
+      org.hl7.fhir.r4.model.Encounter theEncounterResource = (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
 
-      for (HealthRecord.Entry condition : encounter.conditions) {
-        condition(personEntry, bundle, encounterEntry, condition); //DONE condition [JW 2020-05-18]
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.CONDITION))
+        for (HealthRecord.Entry condition : encounter.conditions) {
+          condition(personEntry, bundle, encounterEntry, condition); //DONE condition [JW 2020-05-18]
+        }
 
-      for (HealthRecord.Entry allergy : encounter.allergies) {
-        allergy(personEntry, bundle, encounterEntry, allergy); //DONE allergy [JW 2020-05-18]
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.ALLERGY))
+        for (HealthRecord.Entry allergy : encounter.allergies) {
+          allergy(personEntry, bundle, encounterEntry, allergy); //DONE allergy [JW 2020-05-18]
+        }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.OBSERVATION))
+        for (Observation observation : encounter.observations) {
+          observation(personEntry, bundle, encounterEntry, observation); //DONE observation [JW 2020-05-18]
+        }
 
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.PROCEDURE))
+        for (Procedure procedure : encounter.procedures) {
+          procedure(personEntry, bundle, encounterEntry, procedure); //DONE procedure [JW 2020-05-18]
+        }
       for (Observation observation : encounter.observations) {
         // If the Observation contains an attachment, use a Media resource, since
         // Observation resources in v4 don't support Attachments
@@ -292,63 +294,64 @@ public class FhirR4 {
         }
       }
 
-      for (Procedure procedure : encounter.procedures) {
-        procedure(personEntry, bundle, encounterEntry, procedure); //DONE procedure [JW 2020-05-18]
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.DEVICE))
+        for (HealthRecord.Device device : encounter.devices) {
+          device(personEntry, bundle, device); //DONE devices [JW 2020-05-28]
+        }
 
-      for (HealthRecord.Device device : encounter.devices) {
-        device(personEntry, bundle, device); //DONE devices [JW 2020-05-28]
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.SUPPLY_DELIVERY))
+        for (HealthRecord.Supply supply : encounter.supplies) {
+          supplyDelivery(personEntry, bundle, supply, encounter); //DONE supplyDelivery [JW 2020-05-28]
+        }
 
-      for (HealthRecord.Supply supply : encounter.supplies) {
-        supplyDelivery(personEntry, bundle, supply, encounter); //DONE supplyDelivery [JW 2020-05-28]
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.MEDICATION_REQUEST))
+        for (Medication medication : encounter.medications) {
+          medicationRequest(person, personEntry, bundle, encounterEntry, medication); //DONE medicationRequest [JW 2020-05-29]
+        }
 
-      for (Medication medication : encounter.medications) {
-        medicationRequest(person, personEntry, bundle, encounterEntry, medication); //TODO medicationRequest [WIP JW]
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.IMMUNIZATION))
+        for (HealthRecord.Entry immunization : encounter.immunizations) {
+          immunization(personEntry, bundle, encounterEntry, immunization); //DONE immunization [JW 2020-05-29]
+        }
 
-      for (HealthRecord.Entry immunization : encounter.immunizations) {
-        immunization(personEntry, bundle, encounterEntry, immunization); //TODO immunization
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.REPORT))
+        for (Report report : encounter.reports) {
+          report(personEntry, bundle, encounterEntry, report); //DONE report [JW 2020-05-29]
+        }
 
-      for (Report report : encounter.reports) {
-        report(personEntry, bundle, encounterEntry, report); //TODO report
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.CARE_PLAN))
+        for (CarePlan careplan : encounter.careplans) {
+          BundleEntryComponent careTeamEntry = careTeam(personEntry, bundle,
+              encounterEntry, careplan); //DONE careTeam [JW 2020-05-29]
+          carePlan(personEntry, bundle,
+              encounterEntry, encounter.provider, careTeamEntry, careplan); //DONE carePlan [JW 2020-05-29]
+        }
 
-      for (CarePlan careplan : encounter.careplans) {
-        BundleEntryComponent careTeamEntry =
-            careTeam(personEntry, bundle, encounterEntry, careplan); //TODO careTeam
-        carePlan(personEntry, bundle, encounterEntry, encounter.provider, careTeamEntry, careplan); //TODO careplan
-      }
-
-      for (ImagingStudy imagingStudy : encounter.imagingStudies) {
-        imagingStudy(personEntry, bundle, encounterEntry, imagingStudy); //TODO imaging study
-      }
-      
-      if (USE_US_CORE_IG) {
-        String clinicalNoteText = ClinicalNoteExporter.export(person, encounter); //TODO ClinicalNote / ?
-        boolean lastNote =
-            (encounter == person.record.encounters.get(person.record.encounters.size() - 1));
-        clinicalNote(personEntry, bundle, encounterEntry, clinicalNoteText, lastNote);
-        //[JW] see provenance below
-      }
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.IMAGING_STUDY))
+        for (ImagingStudy imagingStudy : encounter.imagingStudies) {
+          imagingStudy(personEntry, bundle, encounterEntry, imagingStudy); //DONE imaging study [JW 2020-05-29]
+        }
 
       // one claim per encounter
-      BundleEntryComponent encounterClaim =
-          encounterClaim(person, personEntry, bundle, encounterEntry, encounter.claim); //TODO Claim / ?
+      if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.ENCOUNTER_CLAIM)) {
+        BundleEntryComponent encounterClaim = encounterClaim(person,
+            personEntry, bundle, encounterEntry, encounter.claim); //DONE EncounterClaim [JW 2020-05-29]
 
-      explanationOfBenefit(personEntry, bundle, encounterEntry, person,
-          encounterClaim, encounter); //TODO explanationOfBenefit
+        if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.EXPLANATION_OF_BENEFIT))
+          explanationOfBenefit(personEntry, bundle, encounterEntry, person,
+              encounterClaim, encounter); //DONE explanationOfBenefit [JW 2020-05-29]
+      }
+
+      if (fhirR4Specialisation != null) {
+        fhirR4Specialisation.encounterExtensions(theEncounterResource,
+            encounterEntry, encounter, thePersonResource, personEntry, person, bundle);
+      }
     }
 
-    if (USE_US_CORE_IG) {
-      // Add Provenance to the Bundle
-      provenance(bundle, person, stopTime); //TODO provenance
-      //[JW] add this and clinicalNoteText to one extension method in the interface
-      //e.g. additionalExtension
-      //but this method would have to iterate over the encounters again. not too bad though?!
+    if (fhirR4Specialisation != null) {
+      fhirR4Specialisation.bundleExtensions(bundle, person, thePersonResource, stopTime);
     }
+
     return bundle;
   }
 
@@ -363,10 +366,8 @@ public class FhirR4 {
    */
   public static String convertToFHIRJson(Person person, long stopTime) {
     Bundle bundle = convertToFHIR(person, stopTime);
-    String bundleJson = FHIR_CTX.newJsonParser().setPrettyPrint(true)
+    return FHIR_CTX.newJsonParser().setPrettyPrint(true)
         .encodeResourceToString(bundle);
-
-    return bundleJson;
   }
 
   /**
@@ -623,7 +624,7 @@ public class FhirR4 {
       if (providerFullUrl != null) {
         encounterResource.setServiceProvider(new Reference(providerFullUrl));
       } else {
-        BundleEntryComponent providerOrganization = provider(bundle, encounter.provider);
+        BundleEntryComponent providerOrganization = provider(bundle, encounter.provider); //DONE provider [JW 2020-05-29]
         encounterResource.setServiceProvider(new Reference(providerOrganization.getFullUrl()));
       }
       encounterResource.getServiceProvider().setDisplay(encounter.provider.name);
@@ -671,8 +672,7 @@ public class FhirR4 {
           .encounterExtension(encounterResource, person, patient, bundle, encounter);
     }
 
-    BundleEntryComponent entry = newEntry(bundle, encounterResource);
-    return entry;
+    return newEntry(bundle, encounterResource);
   }
 
   /**
@@ -682,7 +682,7 @@ public class FhirR4 {
    * @param bundle   The current bundle being generated.
    * @return Provider.fullUrl if found, otherwise null.
    */
-  private static String findProviderUrl(Provider provider, Bundle bundle) {
+  protected static String findProviderUrl(Provider provider, Bundle bundle) {
     for (BundleEntryComponent entry : bundle.getEntry()) {
       if (entry.getResource().fhirType().equals("Organization")) {
         Organization org = (Organization) entry.getResource();
@@ -695,7 +695,6 @@ public class FhirR4 {
     return null;
   }
 
-
   /**
    * Find the Practitioner entry in this bundle, and return the associated "fullUrl"
    * attribute.
@@ -704,7 +703,7 @@ public class FhirR4 {
    * @param bundle    The current bundle being generated.
    * @return Practitioner.fullUrl if found, otherwise null.
    */
-  private static String findPractitioner(Clinician clinician, Bundle bundle) {
+  protected static String findPractitioner(Clinician clinician, Bundle bundle) {
     for (BundleEntryComponent entry : bundle.getEntry()) {
       if (entry.getResource().fhirType().equals("Practitioner")) {
         Practitioner doc = (Practitioner) entry.getResource();
@@ -779,6 +778,11 @@ public class FhirR4 {
     moneyResource.setCurrency("USD");
     claimResource.setTotal(moneyResource);
 
+    if (fhirR4Specialisation != null) {
+      claimResource = fhirR4Specialisation.medicationClaim(
+          claimResource, person, personEntry, bundle, encounterEntry, claim, medicationEntry);
+    }
+
     return newEntry(bundle, claimResource);
   }
 
@@ -820,9 +824,6 @@ public class FhirR4 {
         .setReference(personEntry.getFullUrl())
         .setDisplay((String) person.attributes.get(Person.NAME)));
     claimResource.setProvider(encounterResource.getServiceProvider());
-    if (USE_US_CORE_IG) {
-      claimResource.setFacility(encounterResource.getLocationFirstRep().getLocation());
-    }
 
     // set the required priority
     CodeableConcept priority = new CodeableConcept();
@@ -904,6 +905,10 @@ public class FhirR4 {
     moneyResource.setValue(claim.getTotalClaimCost());
     claimResource.setTotal(moneyResource);
 
+    if (fhirR4Specialisation != null) {
+      claimResource = fhirR4Specialisation.encounterClaimExtension(claimResource, person, personEntry, bundle, encounterEntry, claim);
+    }
+
     return newEntry(bundle, claimResource);
   }
 
@@ -963,9 +968,6 @@ public class FhirR4 {
 
     // Set References
     eob.setPatient(new Reference(personEntry.getFullUrl()));
-    if (USE_US_CORE_IG) {
-      eob.setFacility(encounterResource.getLocationFirstRep().getLocation());
-    }
 
     ServiceRequest referral = (ServiceRequest) new ServiceRequest()
         .setStatus(ServiceRequest.ServiceRequestStatus.COMPLETED)
@@ -1220,6 +1222,11 @@ public class FhirR4 {
     eob.setPayment(new ExplanationOfBenefit.PaymentComponent()
         .setAmount(payment));
 
+    if (fhirR4Specialisation != null) {
+      eob = fhirR4Specialisation.explanationOfBenefitExtension(eob,
+          personEntry, bundle, encounterEntry, person, claimEntry, encounter);
+    }
+
     return newEntry(bundle, eob);
   }
 
@@ -1308,7 +1315,7 @@ public class FhirR4 {
 
     allergyResource.setType(AllergyIntoleranceType.ALLERGY);
     AllergyIntoleranceCategory category = AllergyIntoleranceCategory.FOOD;
-    allergyResource.addCategory(category); // TODO: allergy categories in GMF
+    allergyResource.addCategory(category); // TODO: allergy categories in GMF [not us!]
     allergyResource.setCriticality(AllergyIntoleranceCriticality.LOW);
 
     CodeableConcept verification = new CodeableConcept();
@@ -1329,7 +1336,6 @@ public class FhirR4 {
     allergy.fullUrl = allergyEntry.getFullUrl();
     return allergyEntry;
   }
-
 
   /**
    * Map the given Observation into a FHIR Observation resource, and add it to the given Bundle.
@@ -1606,87 +1612,18 @@ public class FhirR4 {
     suppliedItem.setQuantity(new Quantity(supply.quantity));
 
     supplyResource.setSuppliedItem(suppliedItem);
-    
     supplyResource.setOccurrence(convertFhirDateTime(supply.start, true));
-    
+    if (fhirR4Specialisation != null) {
+      supplyResource = fhirR4Specialisation.supplyDeliveryExtension(supplyResource,
+          personEntry, bundle, supply, encounter);
+  }
     return newEntry(bundle, supplyResource);
-  }
-
-  /**
-   * Create a Provenance entry at the end of this Bundle that
-   * targets all the entries in the Bundle.
-   *
-   * @param bundle   The finished complete Bundle.
-   * @param person   The person.
-   * @param stopTime The time the simulation stopped.
-   * @return BundleEntryComponent containing a Provenance resource.
-   */
-  private static BundleEntryComponent provenance(Bundle bundle, Person person, long stopTime) {
-    Provenance provenance = new Provenance();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-provenance");
-      provenance.setMeta(meta);
-    }
-    for (BundleEntryComponent entry : bundle.getEntry()) {
-      provenance.addTarget(new Reference(entry.getFullUrl()));
-    }
-    provenance.setRecorded(new Date(stopTime));
-
-    // Provenance sources...
-    int index = person.record.encounters.size() - 1;
-    Clinician clinician = null;
-    while (index >= 0 && clinician == null) {
-      clinician = person.record.encounters.get(index).clinician;
-      index--;
-    }
-    String clinicianDisplay = null;
-    if (clinician != null) {
-      clinicianDisplay = clinician.getFullname();
-    }
-    String practitionerFullUrl = findPractitioner(clinician, bundle);
-    Provider providerOrganization = person.record.provider;
-    if (providerOrganization == null) {
-      providerOrganization = person.getProvider(EncounterType.WELLNESS, stopTime);
-    }
-    String organizationFullUrl = findProviderUrl(providerOrganization, bundle);
-
-    // Provenance Author...
-    ProvenanceAgentComponent agent = provenance.addAgent();
-    agent.setType(mapCodeToCodeableConcept(
-        new Code("http://terminology.hl7.org/CodeSystem/provenance-participant-type",
-            "author", "Author"), null));
-    agent.setWho(new Reference()
-        .setReference(practitionerFullUrl)
-        .setDisplay(clinicianDisplay));
-    agent.setOnBehalfOf(new Reference()
-        .setReference(organizationFullUrl)
-        .setDisplay(providerOrganization.name));
-
-    // Provenance Transmitter...
-    agent = provenance.addAgent();
-    agent.setType(mapCodeToCodeableConcept(
-        new Code("http://hl7.org/fhir/us/core/CodeSystem/us-core-provenance-participant-type",
-            "transmitter", "Transmitter"), null));
-    agent.setWho(new Reference()
-        .setReference(practitionerFullUrl)
-        .setDisplay(clinicianDisplay));
-    agent.setOnBehalfOf(new Reference()
-        .setReference(organizationFullUrl)
-        .setDisplay(providerOrganization.name));
-    return newEntry(bundle, provenance);
-  }
+}
 
   private static BundleEntryComponent immunization(BundleEntryComponent personEntry, Bundle bundle,
                                                    BundleEntryComponent encounterEntry, HealthRecord.Entry immunization) {
     Immunization immResource = new Immunization();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-immunization");
-      immResource.setMeta(meta);
-    } else if (USE_SHR_EXTENSIONS) {
+    if (USE_SHR_EXTENSIONS) {
       immResource.setMeta(new Meta().addProfile(SHR_EXT + "shr-immunization-ImmunizationGiven"));
       Extension performedContext = new Extension();
       performedContext.setUrl(SHR_EXT + "shr-action-PerformedContext-extension");
@@ -1701,10 +1638,9 @@ public class FhirR4 {
     immResource.setPrimarySource(true);
     immResource.setPatient(new Reference(personEntry.getFullUrl()));
     immResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
-    if (USE_US_CORE_IG) {
-      org.hl7.fhir.r4.model.Encounter encounterResource =
-          (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
-      immResource.setLocation(encounterResource.getLocationFirstRep().getLocation());
+
+    if (fhirR4Specialisation != null) {
+      immResource = fhirR4Specialisation.immunizationExtension(immResource, personEntry, bundle, encounterEntry, immunization);
     }
 
     BundleEntryComponent immunizationEntry = newEntry(bundle, immResource);
@@ -1841,14 +1777,19 @@ public class FhirR4 {
 
     }
 
+    if (fhirR4Specialisation != null) {
+      medicationResource = fhirR4Specialisation.medicationRequestExtension(
+          medicationResource, person, personEntry, bundle, encounterEntry, medication);
+    }
+
     BundleEntryComponent medicationEntry = newEntry(bundle, medicationResource);
     // create new claim for medication
     medicationClaim(person, personEntry, bundle, encounterEntry,
-        medication.claim, medicationEntry); //TODO medicationClaim
+        medication.claim, medicationEntry); //DONE medicationClaim [JW 2020-05-29]
 
     // Create new administration for medication, if needed
     if (medication.administration) {
-      medicationAdministration(personEntry, bundle, encounterEntry, medication, medicationResource); //TODO medicationAdministration
+      medicationAdministration(personEntry, bundle, encounterEntry, medication, medicationResource); //DONE medicationAdministration [JW 2020-05-29]
     }
 
     return medicationEntry;
@@ -1923,14 +1864,14 @@ public class FhirR4 {
       }
     }
 
+    if (fhirR4Specialisation != null) {
+      medicationResource = fhirR4Specialisation.medicationAdministrationExtension(
+          medicationResource, personEntry, bundle, encounterEntry, medication, medicationRequest);
+    }
+
     BundleEntryComponent medicationAdminEntry = newEntry(bundle, medicationResource);
     return medicationAdminEntry;
   }
-
-  private static final Code PRESCRIPTION_OF_DRUG_CODE =
-      new Code("SNOMED-CT", "33633005", "Prescription of drug (procedure)");
-  private static final CodeableConcept PRESCRIPTION_OF_DRUG_CC =
-      mapCodeToCodeableConcept(PRESCRIPTION_OF_DRUG_CODE, SNOMED_URI);
 
   /**
    * Map the given Report to a FHIR DiagnosticReport resource, and add it to the given Bundle.
@@ -1944,15 +1885,6 @@ public class FhirR4 {
   private static BundleEntryComponent report(BundleEntryComponent personEntry, Bundle bundle,
                                              BundleEntryComponent encounterEntry, Report report) {
     DiagnosticReport reportResource = new DiagnosticReport();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-lab");
-      reportResource.setMeta(meta);
-      org.hl7.fhir.r4.model.Encounter encounterResource =
-          (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
-      reportResource.addPerformer(encounterResource.getServiceProvider());
-    }
     reportResource.setStatus(DiagnosticReportStatus.FINAL);
     reportResource.addCategory(new CodeableConcept(
         new Coding("http://terminology.hl7.org/CodeSystem/v2-0074", "LAB", "Laboratory")));
@@ -1967,88 +1899,11 @@ public class FhirR4 {
       reportResource.addResult(reference);
     }
 
+    if (fhirR4Specialisation != null) {
+      reportResource = fhirR4Specialisation.diagnosticReportExtension(reportResource, personEntry, bundle, encounterEntry, report);
+    }
+
     return newEntry(bundle, reportResource);
-  }
-
-  /**
-   * Add a clinical note to the Bundle, which adds both a DocumentReference and a
-   * DiagnosticReport.
-   *
-   * @param personEntry      The Entry for the Person
-   * @param bundle           Bundle to add the Report to
-   * @param encounterEntry   Current Encounter entry
-   * @param clinicalNoteText The plain text contents of the note.
-   * @param currentNote      If this is the most current note.
-   * @return The entry for the DocumentReference.
-   */
-  private static BundleEntryComponent clinicalNote(BundleEntryComponent personEntry, Bundle bundle,
-                                                   BundleEntryComponent encounterEntry, String clinicalNoteText, boolean currentNote) {
-    // We'll need the encounter...
-    org.hl7.fhir.r4.model.Encounter encounter =
-        (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
-
-    // Add a DiagnosticReport
-    DiagnosticReport reportResource = new DiagnosticReport();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-diagnosticreport-note");
-      reportResource.setMeta(meta);
-    }
-    reportResource.setStatus(DiagnosticReportStatus.FINAL);
-    reportResource.addCategory(new CodeableConcept(
-        new Coding(LOINC_URI, "34117-2", "History and physical note")));
-    reportResource.getCategoryFirstRep().addCoding(
-        new Coding(LOINC_URI, "51847-2", "Evaluation+Plan note"));
-    reportResource.setCode(reportResource.getCategoryFirstRep());
-    reportResource.setSubject(new Reference(personEntry.getFullUrl()));
-    reportResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
-    reportResource.setEffective(encounter.getPeriod().getStartElement());
-    reportResource.setIssued(encounter.getPeriod().getStart());
-    if (encounter.hasParticipant()) {
-      reportResource.addPerformer(encounter.getParticipantFirstRep().getIndividual());
-    } else {
-      reportResource.addPerformer(encounter.getServiceProvider());
-    }
-    reportResource.addPresentedForm()
-        .setContentType("text/plain")
-        .setData(clinicalNoteText.getBytes());
-    newEntry(bundle, reportResource);
-
-    // Add a DocumentReference
-    DocumentReference documentReference = new DocumentReference();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-documentreference");
-      documentReference.setMeta(meta);
-    }
-    if (currentNote) {
-      documentReference.setStatus(DocumentReferenceStatus.CURRENT);
-    } else {
-      documentReference.setStatus(DocumentReferenceStatus.SUPERSEDED);
-    }
-    documentReference.addIdentifier()
-        .setSystem("urn:ietf:rfc:3986")
-        .setValue(reportResource.getId());
-    documentReference.setType(reportResource.getCategoryFirstRep());
-    documentReference.addCategory(new CodeableConcept(
-        new Coding("http://hl7.org/fhir/us/core/CodeSystem/us-core-documentreference-category",
-            "clinical-note", "Clinical Note")));
-    documentReference.setSubject(new Reference(personEntry.getFullUrl()));
-    documentReference.setDate(encounter.getPeriod().getStart());
-    documentReference.addAuthor(reportResource.getPerformerFirstRep());
-    documentReference.setCustodian(encounter.getServiceProvider());
-    documentReference.addContent()
-        .setAttachment(reportResource.getPresentedFormFirstRep())
-        .setFormat(
-            new Coding("http://ihe.net/fhir/ValueSet/IHE.FormatCode.codesystem",
-                "urn:ihe:iti:xds:2017:mimeTypeSufficient", "mimeType Sufficient"));
-    documentReference.setContext(new DocumentReferenceContextComponent()
-        .addEncounter(reportResource.getEncounter())
-        .setPeriod(encounter.getPeriod()));
-
-    return newEntry(bundle, documentReference);
   }
 
   /**
@@ -2065,16 +1920,6 @@ public class FhirR4 {
                                                BundleEntryComponent encounterEntry, Provider provider,
                                                BundleEntryComponent careTeamEntry, CarePlan carePlan) {
     org.hl7.fhir.r4.model.CarePlan careplanResource = new org.hl7.fhir.r4.model.CarePlan();
-
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-careplan");
-      careplanResource.setMeta(meta);
-      careplanResource.addCategory(mapCodeToCodeableConcept(
-          new Code("http://hl7.org/fhir/us/core/CodeSystem/careplan-category", "assess-plan",
-              null), null));
-    }
 
     String narrative = "Care Plan for ";
     careplanResource.setIntent(CarePlanIntent.ORDER);
@@ -2145,12 +1990,17 @@ public class FhirR4 {
 
     for (JsonObject goal : carePlan.goals) {
       BundleEntryComponent goalEntry =
-          careGoal(bundle, personEntry, carePlan.start, goalStatus, goal);
+          careGoal(bundle, personEntry, carePlan.start, goalStatus, goal); //DONE CareGoal [JW 2020-05-29]
       careplanResource.addGoal().setReference(goalEntry.getFullUrl());
     }
 
     careplanResource.setText(new Narrative().setStatus(NarrativeStatus.GENERATED)
         .setDiv(new XhtmlNode(NodeType.Element).setValue(narrative)));
+
+    if (fhirR4Specialisation != null) {
+      careplanResource = fhirR4Specialisation.carePlanExtension(careplanResource,
+          personEntry, bundle, encounterEntry, provider, careTeamEntry, carePlan);
+    }
 
     return newEntry(bundle, careplanResource);
   }
@@ -2170,12 +2020,6 @@ public class FhirR4 {
     String resourceID = UUID.randomUUID().toString();
 
     Goal goalResource = new Goal();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-goal");
-      goalResource.setMeta(meta);
-    }
     goalResource.setLifecycleStatus(GoalLifecycleStatus.ACCEPTED);
     goalResource.setAchievementStatus(goalStatus);
     goalResource.setId(resourceID);
@@ -2244,6 +2088,11 @@ public class FhirR4 {
       }
     }
 
+    if (fhirR4Specialisation != null) {
+      goalResource = fhirR4Specialisation.careGoalExtension(goalResource,
+          bundle, personEntry, carePlanStart, goalStatus, goal);
+    }
+
     return newEntry(bundle, goalResource);
   }
 
@@ -2260,13 +2109,6 @@ public class FhirR4 {
                                                BundleEntryComponent encounterEntry, CarePlan carePlan) {
 
     CareTeam careTeam = new CareTeam();
-
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-careteam");
-      careTeam.setMeta(meta);
-    }
 
     Period period = new Period().setStart(new Date(carePlan.start));
     careTeam.setPeriod(period);
@@ -2323,6 +2165,10 @@ public class FhirR4 {
     participant.setMember(encounter.getServiceProvider());
     careTeam.addManagingOrganization(encounter.getServiceProvider());
 
+    if (fhirR4Specialisation != null) {
+      careTeam = fhirR4Specialisation.careTeamExtension(careTeam, personEntry, bundle, encounterEntry, carePlan);
+    }
+
     return newEntry(bundle, careTeam);
   }
 
@@ -2352,11 +2198,6 @@ public class FhirR4 {
     imagingStudyResource.setStatus(ImagingStudyStatus.AVAILABLE);
     imagingStudyResource.setSubject(new Reference(personEntry.getFullUrl()));
     imagingStudyResource.setEncounter(new Reference(encounterEntry.getFullUrl()));
-    if (USE_US_CORE_IG) {
-      org.hl7.fhir.r4.model.Encounter encounterResource =
-          (org.hl7.fhir.r4.model.Encounter) encounterEntry.getResource();
-      imagingStudyResource.setLocation(encounterResource.getLocationFirstRep().getLocation());
-    }
 
     Date startDate = new Date(imagingStudy.start);
     imagingStudyResource.setStarted(startDate);
@@ -2365,8 +2206,7 @@ public class FhirR4 {
     int numberOfSeries = imagingStudy.series.size();
     imagingStudyResource.setNumberOfSeries(numberOfSeries);
 
-    List<ImagingStudySeriesComponent> seriesResourceList =
-        new ArrayList<ImagingStudySeriesComponent>();
+    List<ImagingStudySeriesComponent> seriesResourceList = new ArrayList<>();
 
     int totalNumberOfInstances = 0;
     int seriesNo = 1;
@@ -2389,8 +2229,7 @@ public class FhirR4 {
       seriesResource.setNumberOfInstances(numberOfInstances);
       totalNumberOfInstances += numberOfInstances;
 
-      List<ImagingStudySeriesInstanceComponent> instanceResourceList =
-          new ArrayList<ImagingStudySeriesInstanceComponent>();
+      List<ImagingStudySeriesInstanceComponent> instanceResourceList = new ArrayList<>();
 
       int instanceNo = 1;
 
@@ -2415,6 +2254,12 @@ public class FhirR4 {
 
     imagingStudyResource.setSeries(seriesResourceList);
     imagingStudyResource.setNumberOfInstances(totalNumberOfInstances);
+
+    if (fhirR4Specialisation != null) {
+      imagingStudyResource = fhirR4Specialisation.imagingStudyExtension(imagingStudyResource,
+          personEntry, bundle, encounterEntry, imagingStudy);
+    }
+
     return newEntry(bundle, imagingStudyResource);
   }
   
@@ -2478,12 +2323,8 @@ public class FhirR4 {
    */
   protected static BundleEntryComponent provider(Bundle bundle, Provider provider) {
     Organization organizationResource = new Organization();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization");
-      organizationResource.setMeta(meta);
-    } else if (USE_SHR_EXTENSIONS) {
+
+    if (USE_SHR_EXTENSIONS) {
       organizationResource.setMeta(new Meta().addProfile(SHR_EXT + "shr-entity-Organization"));
       organizationResource.addIdentifier()
           .setSystem("urn:ietf:rfc:3986")
@@ -2522,67 +2363,13 @@ public class FhirR4 {
           .setSystem(ContactPointSystem.PHONE)
           .setValue(provider.phone);
       organizationResource.addTelecom(contactPoint);
-    } else if (USE_US_CORE_IG) {
-      ContactPoint contactPoint = new ContactPoint()
-          .setSystem(ContactPointSystem.PHONE)
-          .setValue("(555) 555-5555");
-      organizationResource.addTelecom(contactPoint);
     }
 
-    if (USE_US_CORE_IG) {
-      providerLocation(bundle, provider);
+    if (fhirR4Specialisation != null) {
+      organizationResource = fhirR4Specialisation.providerExtension(organizationResource, bundle, provider);
     }
 
     return newEntry(bundle, organizationResource, provider.getResourceID());
-  }
-
-  /**
-   * Map the Provider into a FHIR Location resource, and add it to the given Bundle.
-   *
-   * @param bundle   The Bundle to add to
-   * @param provider The Provider
-   * @return The added Entry
-   */
-  protected static BundleEntryComponent providerLocation(Bundle bundle, Provider provider) {
-    org.hl7.fhir.r4.model.Location location = new org.hl7.fhir.r4.model.Location();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-location");
-      location.setMeta(meta);
-    }
-    location.setStatus(LocationStatus.ACTIVE);
-    location.setName(provider.name);
-    // set telecom
-    if (provider.phone != null && !provider.phone.isEmpty()) {
-      ContactPoint contactPoint = new ContactPoint()
-          .setSystem(ContactPointSystem.PHONE)
-          .setValue(provider.phone);
-      location.addTelecom(contactPoint);
-    } else if (USE_US_CORE_IG) {
-      ContactPoint contactPoint = new ContactPoint()
-          .setSystem(ContactPointSystem.PHONE)
-          .setValue("(555) 555-5555");
-      location.addTelecom(contactPoint);
-    }
-    // set address
-    Address address = new Address()
-        .addLine(provider.address)
-        .setCity(provider.city)
-        .setPostalCode(provider.zip)
-        .setState(provider.state);
-    if (COUNTRY_CODE != null) {
-      address.setCountry(COUNTRY_CODE);
-    }
-    location.setAddress(address);
-    LocationPositionComponent position = new LocationPositionComponent();
-    position.setLatitude(provider.getY());
-    position.setLongitude(provider.getX());
-    location.setPosition(position);
-    location.setManagingOrganization(new Reference()
-        .setReference(getUrlPrefix("Organization") + provider.getResourceID())
-        .setDisplay(provider.name));
-    return newEntry(bundle, location);
   }
 
   /**
@@ -2594,12 +2381,6 @@ public class FhirR4 {
    */
   protected static BundleEntryComponent practitioner(Bundle bundle, Clinician clinician) {
     Practitioner practitionerResource = new Practitioner();
-    if (USE_US_CORE_IG) {
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitioner");
-      practitionerResource.setMeta(meta);
-    }
     practitionerResource.addIdentifier().setSystem("http://hl7.org/fhir/sid/us-npi")
         .setValue("" + (9_999_999_999L - clinician.identifier));
     practitionerResource.setActive(true);
@@ -2614,11 +2395,6 @@ public class FhirR4 {
         .setSystem(ContactPointSystem.EMAIL)
         .setUse(ContactPointUse.WORK)
         .setValue(email);
-    if (USE_US_CORE_IG) {
-      practitionerResource.getTelecomFirstRep().addExtension()
-          .setUrl("http://hl7.org/fhir/us/core/StructureDefinition/us-core-direct")
-          .setValue(new BooleanType(true));
-    }
     Address address = new Address()
         .addLine((String) clinician.attributes.get(Clinician.ADDRESS))
         .setCity((String) clinician.attributes.get(Clinician.CITY))
@@ -2634,46 +2410,19 @@ public class FhirR4 {
     } else if (clinician.attributes.get(Person.GENDER).equals("F")) {
       practitionerResource.setGender(AdministrativeGender.FEMALE);
     }
-    BundleEntryComponent practitionerEntry =
-        newEntry(bundle, practitionerResource, clinician.getResourceID());
 
-    if (USE_US_CORE_IG) {
-      // generate an accompanying PractitionerRole resource
-      PractitionerRole practitionerRole = new PractitionerRole();
-      Meta meta = new Meta();
-      meta.addProfile(
-          "http://hl7.org/fhir/us/core/StructureDefinition/us-core-practitionerrole");
-      practitionerRole.setMeta(meta);
-      practitionerRole.setPractitioner(new Reference()
-          .setReference(practitionerEntry.getFullUrl())
-          .setDisplay(practitionerResource.getNameFirstRep().getNameAsSingleString()));
-      practitionerRole.setOrganization(new Reference()
-          .setReference(
-              getUrlPrefix("Organization") + clinician.getOrganization().getResourceID())
-          .setDisplay(clinician.getOrganization().name));
-      practitionerRole.addCode(
-          mapCodeToCodeableConcept(
-              new Code("http://nucc.org/provider-taxonomy", "208D00000X", "General Practice"),
-              null));
-      practitionerRole.addSpecialty(
-          mapCodeToCodeableConcept(
-              new Code("http://nucc.org/provider-taxonomy", "208D00000X", "General Practice"),
-              null));
-      practitionerRole.addLocation()
-          .setReference(findLocationUrl(clinician.getOrganization(), bundle))
-          .setDisplay(clinician.getOrganization().name);
-      if (clinician.getOrganization().phone != null
-          && !clinician.getOrganization().phone.isEmpty()) {
-        practitionerRole.addTelecom(new ContactPoint()
-            .setSystem(ContactPointSystem.PHONE)
-            .setValue(clinician.getOrganization().phone));
+    if (fhirR4Specialisation != null) {
+      practitionerResource = fhirR4Specialisation.practitionerExtension(practitionerResource, bundle, clinician);
+      BundleEntryComponent practitionerEntry =
+          newEntry(bundle, practitionerResource, clinician.getResourceID());
+      if (fhirR4Specialisation.handles(FhirR4Specialisation.ResourceType.PRACTITIONER_ROLE)) {
+        fhirR4Specialisation.addPractitionerRole(practitionerResource, practitionerEntry, bundle, clinician);
       }
-      practitionerRole.addTelecom(practitionerResource.getTelecomFirstRep());
-
-      newEntry(bundle, practitionerRole);
+      return practitionerEntry;
+    } else {
+      return newEntry(bundle, practitionerResource, clinician.getResourceID());
     }
 
-    return practitionerEntry;
   }
 
   /**
@@ -2792,6 +2541,10 @@ public class FhirR4 {
     }
 
     return entry;
+  }
+
+  private static boolean shouldRenderResourceType(FhirR4Specialisation.ResourceType resourceType) {
+    return fhirR4Specialisation == null || fhirR4Specialisation.handles(resourceType);
   }
 
   /**
