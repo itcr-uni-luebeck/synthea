@@ -45,4 +45,18 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
     return patientResource;
   }
   //endregion
+
+  //region OTHER_EXTENSIONS
+
+  @Override
+  public void bundleExtensions(Bundle bundle, Person person, Patient patientEntry, long stopTime) {
+    //nyi
+  }
+
+  @Override
+  public void encounterExtensions(Encounter encounterResource, Bundle.BundleEntryComponent encounterComponent, HealthRecord.Encounter encounterModel, Patient patientResource, Bundle.BundleEntryComponent patientComponent, Person patientAgent, Bundle bundle) {
+    //nyi
+  }
+
+  //endregion
 }

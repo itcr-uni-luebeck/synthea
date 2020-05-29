@@ -1,7 +1,10 @@
 package org.mitre.synthea.export;
 
+import com.google.gson.JsonObject;
 import org.hl7.fhir.r4.model.*;
+import org.mitre.synthea.world.agents.Clinician;
 import org.mitre.synthea.world.agents.Person;
+import org.mitre.synthea.world.agents.Provider;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
 import java.util.List;
@@ -22,11 +25,13 @@ public interface FhirR4Specialisation {
    * @return a Meta instance with the given profileURI
    * implNote Usage: resource.setMeta(getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-allergyintolerance"))
    */
-  default Meta getConformanceToProfileMeta(String profileURI) {
+  static Meta getConformanceToProfileMeta(String profileURI) {
     return new Meta().addProfile(profileURI);
   }
 
   boolean handles(ResourceType resourceType);
+
+  //region BASIC INFO
 
   /**
    * Extension to FhirR4 for adding basic info required by an IG
@@ -40,8 +45,6 @@ public interface FhirR4Specialisation {
     return basicInfoForbidden(patientResource);
   }
 
-  //region BASIC INFO
-
   /**
    * Remove attributes/resources that are forbidden by the IG
    *
@@ -52,8 +55,6 @@ public interface FhirR4Specialisation {
   default Patient basicInfoForbidden(Patient patientResource) {
     return patientResource; //pass through if nothing is forbidden
   }
-
-  ;
 
   /**
    * remove all identifiers that do not feature a System in the whitelist.
@@ -70,6 +71,10 @@ public interface FhirR4Specialisation {
         .collect(Collectors.toList());
     patientResource.setIdentifier(identifier);
   }
+
+  //endregion
+
+  //region ENCOUNTER
 
   /**
    * add specific elements to the encounter
@@ -88,9 +93,6 @@ public interface FhirR4Specialisation {
                                        HealthRecord.Encounter encounter) {
     return encounterForbidden(encounterResource);
   }
-  //endregion
-
-  //region ENCOUNTER
 
   /**
    * Remove attributes/resources that are forbidden by the IG in the encounter resource
@@ -102,8 +104,9 @@ public interface FhirR4Specialisation {
   default Encounter encounterForbidden(Encounter encounterResource) {
     return encounterResource; //pass through if nothing is forbidden
   }
+  //endregion
 
-  ;
+  //region CONDITION
 
   /**
    * add specific elements to the encounter
@@ -123,9 +126,6 @@ public interface FhirR4Specialisation {
       HealthRecord.Entry condition) {
     return conditionForbidden(conditionResource);
   }
-  //endregion
-
-  //region CONDITION
 
   /**
    * remove forbidden elements from the condition resource
@@ -137,8 +137,9 @@ public interface FhirR4Specialisation {
   default Condition conditionForbidden(Condition conditionResource) {
     return conditionResource;
   }
+  //endregion
 
-  ;
+  //region ALLERGY
 
   /**
    * IG-specific extensions for AllergyIntolerance
@@ -157,9 +158,6 @@ public interface FhirR4Specialisation {
                                               HealthRecord.Entry allergy) {
     return allergyResource;
   }
-  //endregion
-
-  //region ALLERGY
 
   /**
    * remove forbidden elements from the AllergyIntolerance resource
@@ -171,7 +169,7 @@ public interface FhirR4Specialisation {
     return allergyIntolerance;
   }
 
-  ;
+  //endregion
 
   //region OBSERVATION
   default Observation observationExtension(
@@ -182,11 +180,14 @@ public interface FhirR4Specialisation {
       HealthRecord.Observation observation) {
     return observationResource;
   }
-  //endregion
 
   default Observation observationForbidden(Observation observationResource) {
     return observationResource;
   }
+
+  //endregion
+
+  //region PROCEDURE
 
   /**
    * IG-specific extensions for the Procedure resource
@@ -205,9 +206,6 @@ public interface FhirR4Specialisation {
                                        HealthRecord.Procedure procedure) {
     return procedureForbidden(procedureResource);
   }
-  //endregion
-
-  //region PROCEDURE
 
   /**
    * remove forbidden elements from the procedure resource
@@ -219,6 +217,10 @@ public interface FhirR4Specialisation {
     return procedureResource;
   }
 
+  //endregion
+
+  //region DEVICE
+
   /**
    * IG-specific extensions for the device resource
    *
@@ -228,12 +230,12 @@ public interface FhirR4Specialisation {
    * @param device         the device being rendered
    * @return the modified resource
    */
-  default Device deviceExtension(Device deviceResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, HealthRecord.Device device) {
+  default Device deviceExtension(Device deviceResource,
+                                 Bundle.BundleEntryComponent personEntry,
+                                 Bundle bundle,
+                                 HealthRecord.Device device) {
     return deviceForbidden(deviceResource);
   }
-  //endregion
-
-  //region DEVICE
 
   /**
    * remove forbidden data from the device resources
@@ -244,7 +246,9 @@ public interface FhirR4Specialisation {
   default Device deviceForbidden(Device deviceResource) {
     return deviceResource;
   }
+  //endregion
 
+  //region SUPPLY_DELIVERY
   default SupplyDelivery supplyDeliveryExtension(SupplyDelivery supplyDelivery,
                                                  Bundle.BundleEntryComponent personEntry,
                                                  Bundle bundle,
@@ -252,16 +256,14 @@ public interface FhirR4Specialisation {
                                                  HealthRecord.Encounter encounter) {
     return supplyDeliveryForbidden(supplyDelivery);
   }
-  //endregion
-
-  //region SUPPLY_DELIVERY
 
   default SupplyDelivery supplyDeliveryForbidden(SupplyDelivery supplyDelivery) {
     return supplyDelivery;
   }
+  //endregion
 
   //region MEDICATION_REQUEST
-  default public MedicationRequest medicationRequestExtension(
+  default MedicationRequest medicationRequestExtension(
       MedicationRequest medicationRequest,
       Person person,
       Bundle.BundleEntryComponent personEntry,
@@ -274,15 +276,204 @@ public interface FhirR4Specialisation {
 
   default MedicationRequest medicationRequestForbidden(MedicationRequest medicationRequest) {
     return medicationRequest;
-  };
+  }
+
+  //endregion
+
+  //region MEDICATION_CLAIM
+  default Claim medicationClaim(Claim claimResource,
+                                Person person, Bundle.BundleEntryComponent personEntry,
+                                Bundle bundle, Bundle.BundleEntryComponent encounterEntry,
+                                org.mitre.synthea.world.concepts.Claim claim,
+                                Bundle.BundleEntryComponent medicationEntry) {
+    return medicationClaimForbidden(claimResource);
+  }
+
+  default Claim medicationClaimForbidden(Claim medicationClaim) {
+    return medicationClaim;
+  }
+  //endregion
+
+  //region MEDICATION_ADMINISTRATION
+  default MedicationAdministration medicationAdministrationExtension(
+      MedicationAdministration medicationAdministration,
+      Bundle.BundleEntryComponent personEntry, Bundle bundle,
+      Bundle.BundleEntryComponent encounterEntry,
+      HealthRecord.Medication medication, MedicationRequest medicationRequest) {
+    return medicationAdministrationForbidden(medicationAdministration);
+  }
+
+  default MedicationAdministration medicationAdministrationForbidden(MedicationAdministration medicationAdministration) {
+    return medicationAdministration;
+  }
+  //endregion
+
+  //region IMMUNIZATION
+  default Immunization immunizationExtension(Immunization immunizationResource,
+                                             Bundle.BundleEntryComponent personEntry,
+                                             Bundle bundle,
+                                             Bundle.BundleEntryComponent encounterEntry,
+                                             HealthRecord.Entry immunization) {
+    return immunizationForbidden(immunizationResource);
+  }
+
+  default Immunization immunizationForbidden(Immunization immunization) {
+    return immunization;
+  }
+  //endregion
+
+  //region REPORT
+  default DiagnosticReport diagnosticReportExtension(
+      DiagnosticReport diagnosticReport,
+      Bundle.BundleEntryComponent personEntry,
+      Bundle bundle,
+      Bundle.BundleEntryComponent encounterEntry,
+      HealthRecord.Report report
+  ) {
+    return diagnosticReportForbidden(diagnosticReport);
+  }
+
+  default DiagnosticReport diagnosticReportForbidden(DiagnosticReport diagnosticReport) {
+    return diagnosticReport;
+  }
+  //endregion
+
+  //region CARE_TEAM
+  default CareTeam careTeamExtension(CareTeam careTeam,
+                                     Bundle.BundleEntryComponent personEntry,
+                                     Bundle bundle,
+                                     Bundle.BundleEntryComponent encounterEntry,
+                                     HealthRecord.CarePlan carePlan) {
+    return careTeamForbidden(careTeam);
+  }
+
+  default CareTeam careTeamForbidden(CareTeam careTeam) {
+    return careTeam;
+  }
+  //endregion
+
+  //region CARE_PLAN
+  default CarePlan carePlanExtension(CarePlan carePlanResource,
+                                     Bundle.BundleEntryComponent personEntry,
+                                     Bundle bundle,
+                                     Bundle.BundleEntryComponent encounterEntry,
+                                     Provider provider,
+                                     Bundle.BundleEntryComponent careTeamEntry,
+                                     HealthRecord.CarePlan carePlan) {
+    return carePlanForbidden(carePlanResource);
+  }
+
+  default CarePlan carePlanForbidden(CarePlan carePlanResource) {
+    return carePlanResource;
+  }
+  //endregion
+
+  //region IMAGING_STUDY
+  default ImagingStudy imagingStudyExtension(ImagingStudy imagingStudyResource,
+                                             Bundle.BundleEntryComponent personEntry,
+                                             Bundle bundle,
+                                             Bundle.BundleEntryComponent encounterEntry,
+                                             HealthRecord.ImagingStudy imagingStudy) {
+    return imagingStudyForbidden(imagingStudyResource);
+  }
+
+  default ImagingStudy imagingStudyForbidden(ImagingStudy imagingStudyResource) {
+    return imagingStudyResource;
+  }
+
+  //endregion
+
+  //region ENCOUNTER_CLAIM
+  default Claim encounterClaimExtension(Claim encounterClaimResource,
+                                        Person person,
+                                        Bundle.BundleEntryComponent personEntry,
+                                        Bundle bundle,
+                                        Bundle.BundleEntryComponent encounterEntry,
+                                        org.mitre.synthea.world.concepts.Claim claim) {
+    return encounterClaimForbidden(encounterClaimResource);
+  }
+
+  default Claim encounterClaimForbidden(Claim encounterClaimResource) {
+    return encounterClaimResource;
+  }
+  //endregion
+
+  //region EXPLANATION_OF_BENEFIT
+  default ExplanationOfBenefit explanationOfBenefitExtension(ExplanationOfBenefit explanationResource,
+                                                             Bundle.BundleEntryComponent personEntry,
+                                                             Bundle bundle, Bundle.BundleEntryComponent encounterEntry,
+                                                             Person person, Bundle.BundleEntryComponent claimEntry,
+                                                             HealthRecord.Encounter encounter) {
+    return explanationOfBenefitForbidden(explanationResource);
+  }
+
+  default ExplanationOfBenefit explanationOfBenefitForbidden(ExplanationOfBenefit explanationResource) {
+    return explanationResource;
+  }
+  //endregion
+
+  //region PROVIDER
+  default Organization providerExtension(Organization providerResource, Bundle bundle, Provider provider) {
+    return providerForbidden(providerResource);
+  }
+
+  default Organization providerForbidden(Organization providerResource) {
+    return providerResource;
+  }
+  //endregion
+
+  //region PRACTITIONER
+  default Practitioner practitionerExtension(Practitioner practitionerResource,
+                                             Bundle bundle,
+                                             Clinician clinician) {
+    return practitionerResource;
+  }
+
+  default void addPractitionerRole(Practitioner practitionerResource,
+                                          Bundle.BundleEntryComponent practitionerEntry,
+                                          Bundle bundle,
+                                          Clinician clinician) {
+    //intentionally left blank
+  }
+  //endregion
+
+  //region CARE_GOAL
+  default Goal careGoalExtension(Goal goalResource,
+                                 Bundle bundle,
+                                 Bundle.BundleEntryComponent personEntry,
+                                 long carePlanStart,
+                                 CodeableConcept goalStatus,
+                                 JsonObject goal) {
+    return goalResource;
+  }
+  //endregion
+
+  //region OTHER_EXTENSIONS
+  /**
+   * add other extensions to the bundle that have no equivalents in other implementations
+   *
+   * @param bundle       the bundle that is being generated
+   * @param person       the person agent for whom the synthetic health record is being generated
+   * @param patientEntry the generated entry for the person agent
+   * @param stopTime     Time the simulation ended
+   */
+  void bundleExtensions(Bundle bundle, Person person, org.hl7.fhir.r4.model.Patient patientEntry, long stopTime);
+
+  void encounterExtensions(Encounter encounterResource,
+                           Bundle.BundleEntryComponent encounterComponent,
+                           HealthRecord.Encounter encounterModel,
+                           Patient patientResource,
+                           Bundle.BundleEntryComponent patientComponent,
+                           Person patientAgent,
+                           Bundle bundle);
   //endregion
 
   enum ResourceType {
     BASIC_INFO, ENCOUNTER, CONDITION, ALLERGY, OBSERVATION,
     PROCEDURE, DEVICE, SUPPLY_DELIVERY, MEDICATION_REQUEST,
     IMMUNIZATION, REPORT, CARE_TEAM, CARE_PLAN, IMAGING_STUDY,
-    CLINICAL_NOTE, CLAIM, EXPLANATION_OF_BENEFIT, PROVENANCE
+    CLINICAL_NOTE, ENCOUNTER_CLAIM, EXPLANATION_OF_BENEFIT, PROVENANCE,
+    PRACTITIONER, PRACTITIONER_ROLE
   }
 
-  //endregion
 }
