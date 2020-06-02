@@ -459,10 +459,12 @@ public class FhirR4UsCoreImplementationGuide implements FhirR4Specialisation {
   @Override
   public Organization providerExtension(Organization providerResource, Bundle bundle, Provider provider) {
     providerResource.setMeta(FhirR4Specialisation.getConformanceToProfileMeta("http://hl7.org/fhir/us/core/StructureDefinition/us-core-organization"));
-    ContactPoint contactPoint = new ContactPoint()
-        .setSystem(ContactPoint.ContactPointSystem.PHONE)
-        .setValue("(555) 555-5555");
-    providerResource.addTelecom(contactPoint);
+    if (provider.phone == null || provider.phone.isEmpty()) {
+      ContactPoint contactPoint = new ContactPoint()
+          .setSystem(ContactPoint.ContactPointSystem.PHONE)
+          .setValue("(555) 555-5555");
+      providerResource.addTelecom(contactPoint);
+    }
     providerLocation(bundle, provider);
     return providerResource;
   }
