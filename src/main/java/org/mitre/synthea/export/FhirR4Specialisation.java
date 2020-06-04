@@ -1,13 +1,19 @@
 package org.mitre.synthea.export;
 
 import com.google.gson.JsonObject;
+import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.math3.random.JDKRandomGenerator;
+import org.apache.xpath.operations.Bool;
 import org.hl7.fhir.r4.model.*;
 import org.mitre.synthea.world.agents.Clinician;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.agents.Provider;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
+import javax.swing.plaf.IconUIResource;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -29,6 +35,14 @@ public interface FhirR4Specialisation {
   }
 
   boolean handles(ResourceType resourceType);
+
+  default void beforeExport(Person person) {
+
+  }
+
+  default void afterExport(Person person) {
+
+  }
 
   //region BASIC INFO
 
@@ -61,7 +75,7 @@ public interface FhirR4Specialisation {
    *
    * @param patientResource          the resource to modify
    * @param allowedIdentifierSystems the whitelist that allows identifiers for the IG
-   */
+   *//*
   default void removeInvalidIdentifiersBasicInfo(Patient patientResource,
                                                  List<String> allowedIdentifierSystems) {
     List<Identifier> identifier = patientResource
@@ -70,7 +84,7 @@ public interface FhirR4Specialisation {
         .filter(i -> allowedIdentifierSystems.stream().anyMatch(ai -> i.getSystem().equals(ai)))
         .collect(Collectors.toList());
     patientResource.setIdentifier(identifier);
-  }
+  }*/
 
   //endregion
 
@@ -79,11 +93,11 @@ public interface FhirR4Specialisation {
   /**
    * add specific elements to the encounter
    *
-   * @param encounterResource the already-rendered encounter resource
-   * @param person            the person to render
-   * @param patientResource   the patient resource this encounter refers to
-   * @param bundle            the genreated bundle to add to
-   * @param encounter         the encounter from Synthea's model
+   * @param encounterResource  the already-rendered encounter resource
+   * @param person             the person to render
+   * @param patientResource    the patient resource this encounter refers to
+   * @param bundle             the genreated bundle to add to
+   * @param encounter          the encounter from Synthea's model
    * @param encounterComponent
    * @return the modified encounter
    */
@@ -431,9 +445,9 @@ public interface FhirR4Specialisation {
   }
 
   default void addPractitionerRole(Practitioner practitionerResource,
-                                          Bundle.BundleEntryComponent practitionerEntry,
-                                          Bundle bundle,
-                                          Clinician clinician) {
+                                   Bundle.BundleEntryComponent practitionerEntry,
+                                   Bundle bundle,
+                                   Clinician clinician) {
     //intentionally left blank
   }
   //endregion
@@ -450,6 +464,7 @@ public interface FhirR4Specialisation {
   //endregion
 
   //region OTHER_EXTENSIONS
+
   /**
    * add other extensions to the bundle that have no equivalents in other implementations
    *
@@ -475,6 +490,156 @@ public interface FhirR4Specialisation {
     IMMUNIZATION, REPORT, CARE_TEAM, CARE_PLAN, IMAGING_STUDY,
     CLINICAL_NOTE, ENCOUNTER_CLAIM, EXPLANATION_OF_BENEFIT, PROVENANCE,
     PRACTITIONER, PRACTITIONER_ROLE
+  }
+
+  /**
+   * allows for providing additional attributes to the resource required
+   * The class uses the
+   *
+   * @param <T> the type of the value returned by generate
+   */
+  abstract class AdditionalAttribute<T> {
+
+    /**
+     * the random generator used
+     */
+    JDKRandomGenerator randomGenerator;
+    /**
+     * the chance whether this attribute will be used in the resource
+     */
+    float chance;
+
+    /**
+     * Wraps a random decision, using the established random generator
+     *
+     * @param chance the chance whether this attribute will be used in the resource
+     * @param random the random generator, for reproducibility
+     */
+    public AdditionalAttribute(float chance, JDKRandomGenerator random) {
+      this.chance = chance;
+      this.randomGenerator = random;
+    }
+
+    /**
+     * the main entry point of this class. Returns a value of type T, subject to the chance parameter
+     *
+     * @return a random attribute from the possible choices, dependent on random chance
+     */
+    abstract T generate();
+
+    /**
+     * evaluates the chance. Returns true, if the next float from the generator is <= chance
+     * Implementations may use this method to decide whether to return an attribute or null.
+     * For BooleanAdditionalAttribute, this value is directly returned
+     *
+     * @return a boolean that can be used for decisions downstream
+     */
+    protected boolean evaluateChance() {
+      var f = this.randomGenerator.nextFloat();
+      return f <= this.chance;
+    }
+  }
+
+  /**
+   * a boolean additional attribute
+   */
+  class BooleanAdditionalAttribute extends AdditionalAttribute<Boolean> {
+
+    public BooleanAdditionalAttribute(float chance, JDKRandomGenerator random) {
+      super(chance, random);
+    }
+
+    public BooleanAdditionalAttribute(JDKRandomGenerator random) {
+      super(0.5f, random);
+    }
+
+    @Override
+    Boolean generate() {
+      return evaluateChance();
+    }
+  }
+
+  /**
+   * chooses attributes from a list, for example different nobility predicates (Graf, Prinz, Herzog, ...)
+   */
+  class StringListAdditionalAttribute extends AdditionalAttribute<String> {
+
+    private final List<String> choices;
+
+    public StringListAdditionalAttribute(float nullChance, JDKRandomGenerator random, String... choices) {
+      super(nullChance, random);
+      this.choices = Arrays.asList(choices);
+    }
+
+    @Override
+    String generate() {
+      if (evaluateChance()) return null;
+      return choices.get(randomGenerator.nextInt(choices.size()));
+    }
+
+    public StringType generateAsStringType() {
+      var s = generate();
+      if (s != null) return new StringType(s);
+      return null;
+    }
+  }
+
+  class GenericListAdditionalAttribute<T> extends AdditionalAttribute<T> {
+
+    List<T> choices;
+
+    @SafeVarargs
+    GenericListAdditionalAttribute(float chance, JDKRandomGenerator random, T... choices) {
+      super(chance, random);
+      this.choices = Arrays.asList(choices);
+    }
+
+    @Override
+    T generate() {
+      if (evaluateChance()) return null;
+      return choices.get(randomGenerator.nextInt(choices.size()));
+    }
+  }
+
+  class GenderedStringListAdditionalAttribute extends StringListAdditionalAttribute {
+
+    private final List<GenderedStringChoice> choices;
+    private final boolean isFemale;
+
+    public GenderedStringListAdditionalAttribute(float nullChance,
+                                                 JDKRandomGenerator random,
+                                                 boolean isFemale,
+                                                 GenderedStringChoice... choices) {
+      super(nullChance, random);
+      this.isFemale = isFemale;
+      this.choices = Arrays.asList(choices);
+    }
+
+    @Override
+    String generate() {
+      if (evaluateChance()) return null;
+      int index = randomGenerator.nextInt(choices.size());
+      var choice = this.choices.get(index);
+      return isFemale ? choice.getFemale(): choice.getMale();
+    }
+
+    static class GenderedStringChoice {
+      private final String male;
+      private final String female;
+
+      public GenderedStringChoice(String male, String female) {
+        this.male = male;
+        this.female = female;
+      }
+
+      public String getMale() {
+        return male;
+      }
+
+      public String getFemale() {
+        return female;
+      }
+    }
   }
 
 }

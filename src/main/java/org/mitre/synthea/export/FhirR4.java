@@ -253,6 +253,10 @@ public class FhirR4 {
       fhirR4Specialisation = new FhirR4DeKDSImplementationGuide();
     }
 
+    if (fhirR4Specialisation != null) {
+      fhirR4Specialisation.beforeExport(person);
+    }
+
     BundleEntryComponent personEntry = basicInfo(person, bundle, stopTime); //DONE basicInfo [JW 2020-05-18]
     org.hl7.fhir.r4.model.Patient thePersonResource = (org.hl7.fhir.r4.model.Patient) personEntry.getResource();
 
@@ -335,6 +339,7 @@ public class FhirR4 {
 
     if (fhirR4Specialisation != null) {
       fhirR4Specialisation.bundleExtensions(bundle, person, thePersonResource, stopTime);
+      fhirR4Specialisation.afterExport(person);
     }
 
     return bundle;
