@@ -281,22 +281,19 @@ public class FhirR4 {
         }
       if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.OBSERVATION))
         for (Observation observation : encounter.observations) {
-          observation(personEntry, bundle, encounterEntry, observation); //DONE observation [JW 2020-05-18]
+          // If the Observation contains an attachment, use a Media resource, since
+          // Observation resources in v4 don't support Attachments
+          if (observation.value instanceof Attachment && specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.MEDIA)) {
+            media(personEntry, bundle, encounterEntry, observation); //TODO media
+          } else {
+            observation(personEntry, bundle, encounterEntry, observation);
+          }
         }
 
       if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.PROCEDURE))
         for (Procedure procedure : encounter.procedures) {
           procedure(personEntry, bundle, encounterEntry, procedure); //DONE procedure [JW 2020-05-18]
         }
-      for (Observation observation : encounter.observations) {
-        // If the Observation contains an attachment, use a Media resource, since
-        // Observation resources in v4 don't support Attachments
-        if (observation.value instanceof Attachment) {
-          media(personEntry, bundle, encounterEntry, observation);
-        } else {
-          observation(personEntry, bundle, encounterEntry, observation);
-        }
-      }
 
       if (specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.DEVICE))
         for (HealthRecord.Device device : encounter.devices) {
@@ -2553,10 +2550,6 @@ public class FhirR4 {
     }
 
     return entry;
-  }
-
-  private static boolean shouldRenderResourceType(FhirR4Specialisation.ResourceType resourceType) {
-    return fhirR4Specialisation == null || fhirR4Specialisation.handles(resourceType);
   }
 
   /**
