@@ -1,15 +1,20 @@
 package org.mitre.synthea.export;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.math3.random.JDKRandomGenerator;
+import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.r4.model.*;
 import org.hl7.fhir.r4.model.codesystems.DataAbsentReason;
+import org.mitre.synthea.modules.LifecycleModule;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
 import javax.print.DocFlavor;
 import javax.xml.crypto.Data;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -31,6 +36,18 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
   private static final String SYSTEM_GENDER_AMTLICH_DE = "http://fhir.de/CodeSystem/gender-amtlich-de";
   private static final String EXTENSION_GENDER_AMTLICH_DE = "http://fhir.de/StructureDefinition/gender-amtlich-de";
   private static final String EXTENSION_DATA_ABSENT_REASON = "http://hl7.org/fhir/StructureDefinition/data-absent-reason";
+  private static final String EXTENSION_ADXP_POSTBOX = "http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-postBox";
+  private static final String EXTENSION_ADXP_ADDITIONAL_LOCATOR = "http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-additionalLocator";
+  private static final String EXTENSION_ADXP_HOUSENUMBER = "http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-houseNumber";
+  private static final String EXTENSION_ADXP_STREETNAME = "http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-streetName";
+  private static final String[] ADDITONAL_ADDRESS_TYPES = new String[] {"Unit", "Apt", "Suite"};
+  /**
+   * split the address into the parts 'house number' (no), 'street' (st/sta) and additional line
+   * for unit/apt/suite,... (add)
+   */
+  private static final Pattern PATTERN_SPLIT_ADDRESS = Pattern.compile(
+      "(?<no>\\d*) (?:(?<sta>[\\w ]*) (?<add>(?:" + String.join("|", ADDITONAL_ADDRESS_TYPES) +
+      ") \\d+)|(?<st>[\\w ]*))");
 
   @Override
   public boolean handles(ResourceType resourceType) {
@@ -76,7 +93,38 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
   }
 
   private void basicInfoSetAddress(Patient patientResource, Person person) {
-    var address = patientResource.getAddress();
+    var address = patientResource.getAddressFirstRep();
+    var line = address.getLine().get(0);
+    address.setUse(Address.AddressUse.HOME);
+    if (new BooleanAdditionalAttribute(0.2f, person.random).generate()) {
+      //make this address a PO box
+      address.setType(Address.AddressType.POSTAL);
+      var poBoxNumber = "Postfach " + String.valueOf(person.random.nextInt(999999) + 1);
+      var poBoxStringType = new StringType(poBoxNumber);
+      address.getLine().clear();
+      line.setValue(poBoxNumber).addExtension().setUrl(EXTENSION_ADXP_POSTBOX).setValue(poBoxStringType);
+      writeToConsole("  Changed address to PO Box '%s'", poBoxNumber);
+    } else {
+      //this address remains a home address, add extensions for number, etc.
+      //also, add the house number after the street name, conforming to German practise
+      var splitAddress = PATTERN_SPLIT_ADDRESS.matcher(line.getValue());
+      if (!splitAddress.matches()) throw new FHIRException("Address does not match the expected format");
+      String houseNumber = splitAddress.group("no");
+      String additonal = splitAddress.group("add");
+      String street = splitAddress.group(additonal != null ? "sta" : "st");
+      line.addExtension(EXTENSION_ADXP_HOUSENUMBER, new StringType(houseNumber));
+      line.addExtension(EXTENSION_ADXP_STREETNAME, new StringType(street));
+      var lineBuilder = new StringBuilder();
+      lineBuilder.append(street).append(" ").append(houseNumber);
+      if (additonal != null) {
+        lineBuilder.append(", ").append(additonal);
+        line.addExtension(EXTENSION_ADXP_ADDITIONAL_LOCATOR, new StringType(additonal));
+      }
+      line.setValue(lineBuilder.toString());
+      writeToConsole("  reformatted address to %s", lineBuilder.toString());
+    }
+    //add the Amtlicher Gemeindeschluessel to the city in some instances
+
   }
 
   /**
@@ -93,7 +141,7 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
         writeToConsole("  changed deceasedDateTime to deceasedBoolean");
       } else {
         patientResource.setDeceased(new BooleanType(false));
-        writeToConsole(  "set deceasedBoolean to FALSE");
+        writeToConsole(  "  set deceasedBoolean to FALSE");
       }
     }
   }
@@ -113,7 +161,7 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
   }
 
   private void basicInfoSetGender(Patient patientResource, Person person) {
-    //synthea, by default does not consider non-binary genders.
+    //synthea, by default, does not consider non-binary genders.
     //because the KDS Core IG does make provisions for the third gender,
     //some patients will be mapped to other genders
     if (new BooleanAdditionalAttribute(Chances.GENDER_CHANGE, person.random).generate()) {

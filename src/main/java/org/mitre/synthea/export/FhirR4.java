@@ -156,7 +156,7 @@ public class FhirR4 {
   protected static final String COUNTRY_CODE = Config.get("generate.geography.country_code");
   // HAPI FHIR warns that the context creation is expensive, and should be performed
   // per-application, not per-record
-  private static final FhirContext FHIR_CTX = FhirContext.forR4();
+  protected static final FhirContext FHIR_CTX = FhirContext.forR4();
   @SuppressWarnings("rawtypes")
   private static final Map languageLookup = loadLanguageLookup();
   private static final Table<String, String, String> SHR_MAPPING =
