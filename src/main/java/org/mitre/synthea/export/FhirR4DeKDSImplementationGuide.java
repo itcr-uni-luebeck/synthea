@@ -5,15 +5,17 @@ import org.apache.commons.math3.random.JDKRandomGenerator;
 import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.r4.model.*;
 import org.hl7.fhir.r4.model.codesystems.DataAbsentReason;
+import org.mitre.synthea.helpers.Config;
+import org.mitre.synthea.helpers.SimpleCSV;
+import org.mitre.synthea.helpers.Utilities;
 import org.mitre.synthea.modules.LifecycleModule;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
 import javax.print.DocFlavor;
 import javax.xml.crypto.Data;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
+import java.io.IOException;
+import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -40,14 +42,36 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
   private static final String EXTENSION_ADXP_ADDITIONAL_LOCATOR = "http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-additionalLocator";
   private static final String EXTENSION_ADXP_HOUSENUMBER = "http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-houseNumber";
   private static final String EXTENSION_ADXP_STREETNAME = "http://hl7.org/fhir/StructureDefinition/iso21090-ADXP-streetName";
-  private static final String[] ADDITONAL_ADDRESS_TYPES = new String[] {"Unit", "Apt", "Suite"};
+  private static final String EXTENSION_DESTATIS_AGS = "http://fhir.de/StructureDefinition/destatis/ags";
+  private static final String SYSTEM_DESTATIS_AGS = "http://fhir.de/NamingSystem/destatis/ags";
+  private static final String[] ADDITONAL_ADDRESS_TYPES = new String[]{"Unit", "Apt", "Suite", "Apartment", "Appartement", "Stockwerk"};
+  private static final String[] STREET_TYPES = new String[]{"-Stra\\we", " Stra\\we", "-Str.", " Allee", "-Weg", " Platz"};
   /**
-   * split the address into the parts 'house number' (no), 'street' (st/sta) and additional line
-   * for unit/apt/suite,... (add)
+   * split the address into the parts 'house number' (no), 'street' (stn and stt) and additional line
+   * for unit/apt/suite,... (adt and adn)
    */
   private static final Pattern PATTERN_SPLIT_ADDRESS = Pattern.compile(
-      "(?<no>\\d*) (?:(?<sta>[\\w ]*) (?<add>(?:" + String.join("|", ADDITONAL_ADDRESS_TYPES) +
-      ") \\d+)|(?<st>[\\w ]*))");
+      "(?<no>\\d*) (?<stn>\\w*) (?<stt>(?:" +
+          String.join("|", STREET_TYPES) +
+          "))(?:$| (?<adt>" +
+          String.join("|", ADDITONAL_ADDRESS_TYPES) +
+          ") (?<adn>\\d*))",
+      Pattern.UNICODE_CHARACTER_CLASS
+  );
+  private final Map<String, String> AGS_MAP = buildAgsMap();
+
+  public HashMap<String, String> buildAgsMap() {
+    String filename = Config.get("generate.geography.zipcodes.default_file");
+    HashMap<String, String> agsMap = new HashMap<>();
+    try {
+      String csv = Utilities.readResource(filename);
+      List<? extends Map<String, String>> zipCsv = SimpleCSV.parse(csv);
+      zipCsv.forEach(row -> agsMap.put(row.get("ZCTA5"), row.get("")));
+      return agsMap;
+    } catch (Exception e) {
+      return agsMap;
+    }
+  }
 
   @Override
   public boolean handles(ResourceType resourceType) {
@@ -66,12 +90,26 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
 
   @Override
   public void beforeExport(Person person) {
-    writeToConsole("exporting %s", person.attributes.get(Person.NAME));
+    writeToConsole("started exporting", person);
   }
 
   @Override
   public void afterExport(Person person) {
-    writeToConsole("done exporting %s", person.attributes.get(Person.NAME));
+    writeToConsole("done exporting", person);
+  }
+
+  private void writeToConsole(String s, Person person, Object... o) {
+    var given = person.attributes.get(Person.FIRST_NAME).toString().substring(0, 2);
+    var family = person.attributes.get(Person.LAST_NAME).toString().substring(0, 2);
+    var prefix = String.format("[%s-%s] :  ", given, family);
+    var message = String.format(s, o);
+    writeToConsole(prefix, message);
+  }
+
+  private void writeToConsole(String prefix, String message) {
+    System.out.print(prefix);
+    System.out.println(message);
+    System.out.flush();
   }
 
   @Override
@@ -101,47 +139,62 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
       address.setType(Address.AddressType.POSTAL);
       var poBoxNumber = "Postfach " + String.valueOf(person.random.nextInt(999999) + 1);
       var poBoxStringType = new StringType(poBoxNumber);
-      address.getLine().clear();
       line.setValue(poBoxNumber).addExtension().setUrl(EXTENSION_ADXP_POSTBOX).setValue(poBoxStringType);
-      writeToConsole("  Changed address to PO Box '%s'", poBoxNumber);
+      writeToConsole("Changed address to PO Box '%s'", person, poBoxNumber);
     } else {
       //this address remains a home address, add extensions for number, etc.
       //also, add the house number after the street name, conforming to German practise
       var splitAddress = PATTERN_SPLIT_ADDRESS.matcher(line.getValue());
-      if (!splitAddress.matches()) throw new FHIRException("Address does not match the expected format");
+      if (!splitAddress.matches()) {
+        throw new FHIRException("Address does not conform to pattern!");
+      }
       String houseNumber = splitAddress.group("no");
-      String additonal = splitAddress.group("add");
-      String street = splitAddress.group(additonal != null ? "sta" : "st");
+      String streetName = splitAddress.group("stn");
+      String streetType = splitAddress.group("stt");
+      String additionalType = splitAddress.group("adt");
+      String additionalNo = splitAddress.group("adn");
+      String street = String.format("%s%s", streetName, streetType);
       line.addExtension(EXTENSION_ADXP_HOUSENUMBER, new StringType(houseNumber));
       line.addExtension(EXTENSION_ADXP_STREETNAME, new StringType(street));
       var lineBuilder = new StringBuilder();
       lineBuilder.append(street).append(" ").append(houseNumber);
-      if (additonal != null) {
-        lineBuilder.append(", ").append(additonal);
-        line.addExtension(EXTENSION_ADXP_ADDITIONAL_LOCATOR, new StringType(additonal));
+      if (additionalType != null) {
+        String additional = String.format("%s %s", additionalType, additionalNo);
+        lineBuilder.append(", ").append(additional);
+        line.addExtension(EXTENSION_ADXP_ADDITIONAL_LOCATOR, new StringType(additional));
       }
       line.setValue(lineBuilder.toString());
-      writeToConsole("  reformatted address to %s", lineBuilder.toString());
+      writeToConsole("reformatted address to %s", person, lineBuilder.toString());
     }
-    //add the Amtlicher Gemeindeschluessel to the city in some instances
 
+    //add the Amtlicher Gemeindeschluessel to the city in some instances
+    if (new BooleanAdditionalAttribute(0.1f, person.random).generate()) {
+      var zip = address.getPostalCode();
+      if (AGS_MAP.containsKey(zip)) {
+        var ags = AGS_MAP.get(zip);
+        var agsCoding = new Coding().setSystem(SYSTEM_DESTATIS_AGS).setCode(ags);
+        address.getCityElement().addExtension(EXTENSION_DESTATIS_AGS, agsCoding);
+        writeToConsole("added AGS %s", person, ags);
+      }
+    }
   }
 
   /**
    * systems must support deceasedBoolean as well as deceasedDateTime.
    * Change some deceasedDateTime to deceasedBoolean
+   *
    * @param patientResource the resource to modify
-   * @param person the person being rendered
+   * @param person          the person being rendered
    */
   private void basicInfoSetDeceasedBoolean(Patient patientResource, Person person) {
     var change = new BooleanAdditionalAttribute(person.random).generate();
     if (change) {
       if (patientResource.getDeceased() != null) {
         patientResource.setDeceased(new BooleanType(true));
-        writeToConsole("  changed deceasedDateTime to deceasedBoolean");
+        writeToConsole("changed deceasedDateTime to deceasedBoolean", person);
       } else {
         patientResource.setDeceased(new BooleanType(false));
-        writeToConsole(  "  set deceasedBoolean to FALSE");
+        writeToConsole("set deceasedBoolean to FALSE", person);
       }
     }
   }
@@ -156,7 +209,7 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
           .setUrl(EXTENSION_DATA_ABSENT_REASON)
           .setValue(new CodeType(dataAbsentReason.toCode()));
       patientResource.setBirthDateElement(absentBirthdate);
-      writeToConsole("  removed birthday, reason: %s", dataAbsentReason.getDisplay());
+      writeToConsole("removed birthday, reason: %s", person, dataAbsentReason.getDisplay());
     }
   }
 
@@ -171,16 +224,10 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
           .setSystem(SYSTEM_GENDER_AMTLICH_DE)
           .setCode(isDiverse ? "D" : "X")
           .setDisplay(isDiverse ? "divers" : "unbestimmt");
-      writeToConsole("  Gender mapped to OTHER[%s = %s]", genderAmtlichCoding.getCode(), genderAmtlichCoding.getDisplay());
+      writeToConsole("Gender mapped to OTHER[%s = %s]", person, genderAmtlichCoding.getCode(), genderAmtlichCoding.getDisplay());
       patientResource.setGender(Enumerations.AdministrativeGender.OTHER);
       patientResource.getGenderElement().addExtension(EXTENSION_GENDER_AMTLICH_DE, genderAmtlichCoding);
     }
-  }
-
-  private synchronized void writeToConsole(String message, Object... args) {
-    System.out.format(message, args);
-    System.out.println();
-    System.out.flush();
   }
 
   private void basicInfoSetName(Patient patientResource, Person person) {
