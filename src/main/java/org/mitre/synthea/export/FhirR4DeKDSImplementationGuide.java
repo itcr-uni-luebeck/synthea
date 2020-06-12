@@ -1,6 +1,5 @@
 package org.mitre.synthea.export;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.math3.random.JDKRandomGenerator;
 import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.r4.model.*;
@@ -8,13 +7,9 @@ import org.hl7.fhir.r4.model.codesystems.DataAbsentReason;
 import org.mitre.synthea.helpers.Config;
 import org.mitre.synthea.helpers.SimpleCSV;
 import org.mitre.synthea.helpers.Utilities;
-import org.mitre.synthea.modules.LifecycleModule;
 import org.mitre.synthea.world.agents.Person;
 import org.mitre.synthea.world.concepts.HealthRecord;
 
-import javax.print.DocFlavor;
-import javax.xml.crypto.Data;
-import java.io.IOException;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -46,6 +41,9 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
   private static final String SYSTEM_DESTATIS_AGS = "http://fhir.de/NamingSystem/destatis/ags";
   private static final String[] ADDITONAL_ADDRESS_TYPES = new String[]{"Unit", "Apt", "Suite", "Apartment", "Appartement", "Stockwerk"};
   private static final String[] STREET_TYPES = new String[]{"-Stra\\we", " Stra\\we", "-Str.", " Allee", "-Weg", " Platz"};
+  private static final String PROFILE_PERSON_PATIENT = "https://www.medizininformatik-initiative.de/fhir/core/StructureDefinition/Patient";
+  private static final String PROFILE_VERSORGUNGSFALL = "https://www.medizininformatik-initiative.de/fhir/core/StructureDefinition/Encounter/Versorgungsfall";
+  private static final String SYSTEM_DIAGNOSIS_ROLE = "http://terminology.hl7.org/CodeSystem/diagnosis-role";
   /**
    * split the address into the parts 'house number' (no), 'street' (stn and stt) and additional line
    * for unit/apt/suite,... (adt and adn)
@@ -118,8 +116,9 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
     patientResource = basicInfoForbidden(patientResource);
     patientResource.setMeta(
         FhirR4Specialisation
-            .getConformanceToProfileMeta("https://www.medizininformatik-initiative.de/fhir/core/StructureDefinition/Patient")
+            .getConformanceToProfileMeta(PROFILE_PERSON_PATIENT)
             .setSource(SYNTHEA_DE));
+
     basicInfoSetPatientIdentifiers(patientResource, person);
     basicInfoSetName(patientResource, person);
     basicInfoSetGender(patientResource, person);
@@ -215,7 +214,7 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
 
   private void basicInfoSetGender(Patient patientResource, Person person) {
     //synthea, by default, does not consider non-binary genders.
-    //because the KDS Core IG does make provisions for the third gender,
+    //because the KDS Core IG does make provisions for non-binary gender though,
     //some patients will be mapped to other genders
     if (new BooleanAdditionalAttribute(Chances.GENDER_CHANGE, person.random).generate()) {
       //50:50 ration between other[divers] and other[unbestimmt]
@@ -378,7 +377,38 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
 
   @Override
   public void encounterExtensions(Encounter encounterResource, Bundle.BundleEntryComponent encounterComponent, HealthRecord.Encounter encounterModel, Patient patientResource, Bundle.BundleEntryComponent patientComponent, Person patientAgent, Bundle bundle) {
-    //nyi
+    var diagnoses = bundle.getEntry().stream().filter(b -> b.getResource().fhirType().equals("Condition")).map(b -> (Condition) b.getResource()).collect(Collectors.toList());
+    var aufnahmeDiagnoseCode = new HealthRecord.Code(SYSTEM_DIAGNOSIS_ROLE, "AD", "Aufnahmediagnose");
+    writeToConsole("diagnoses:", diagnoses.toString());
+    diagnoses.forEach(d -> encounterResource.addDiagnosis()
+        .setCondition(new Reference(d))
+        .setUse(FhirR4.mapCodeToCodeableConcept(aufnahmeDiagnoseCode, null)));
+  }
+
+  @Override
+  public Encounter encounterExtension(Encounter encounterResource, Person person, Patient patientResource, Bundle bundle, HealthRecord.Encounter encounter, Bundle.BundleEntryComponent encounterComponent) {
+    encounterResource = encounterForbidden(encounterResource);
+    //first, map the Versorgungsfall, which is used for in- and outpatient encounters
+    encounterResource.setMeta(FhirR4Specialisation
+        .getConformanceToProfileMeta(PROFILE_VERSORGUNGSFALL)
+        .setSource(SYNTHEA_DE));
+
+    HealthRecord.Code vnCode = new HealthRecord.Code(SYSTEM_V2_0203, "VN", "Fallnummer");
+    var identifierVersorgungfall = new Identifier()
+        .setType(FhirR4.mapCodeToCodeableConcept(vnCode, null))
+        .setSystem(SYNTHEA_DE + "/NamingSystem/Versorgungsfall")
+        .setValue(UUID.randomUUID().toString());
+    identifierVersorgungfall.getAssigner().getIdentifier().setValue(encounter.provider.getResourceID()); //TODO is this consistent?
+    encounterResource.addIdentifier(identifierVersorgungfall);
+
+    var versorgungsfallKlasse = VersorgungsfallKlasse.fromEncounterType(encounter.type);
+
+    return encounterResource;
+  }
+
+  @Override
+  public Encounter encounterForbidden(Encounter encounterResource) {
+    return encounterResource;
   }
 
   private static class Chances {
@@ -389,6 +419,42 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
     static final float IS_NOBILITY = 0.3f;
     static final float NOBILITY_HAS_VOORVOEGSEL = 0.95f;
     static final float NOBILITY_HAS_PREFIX = 0.25f;
+  }
+
+  public static class VersorgungsfallKlasse {
+    public static final String SYSTEM_VERSORGUNGSFALLKLASSE = "https://www.medizininformatik-initiative.de/fhir/core/CodeSystem/Versorgungsfallklasse";
+    public static final HealthRecord.Code STATIONAER = new HealthRecord.Code(SYSTEM_VERSORGUNGSFALLKLASSE,
+        "stationaer", "Stationär");
+    public static final HealthRecord.Code VORSTATIONAER = new HealthRecord.Code(SYSTEM_VERSORGUNGSFALLKLASSE,
+        "vorstationaer", "Vorstationär");
+    public static final HealthRecord.Code VOLLSTATIONAER = new HealthRecord.Code(SYSTEM_VERSORGUNGSFALLKLASSE,
+        "vollstationaer", "Vollstationär");
+    public static final HealthRecord.Code NACHSTATIONAER = new HealthRecord.Code(SYSTEM_VERSORGUNGSFALLKLASSE,
+        "nachstationaer", "Nachstationär");
+    public static final HealthRecord.Code AMBULANT = new HealthRecord.Code(SYSTEM_VERSORGUNGSFALLKLASSE,
+        "ambulant", "Ambulant");
+    public static final HealthRecord.Code TEILSTATIONAER = new HealthRecord.Code(SYSTEM_VERSORGUNGSFALLKLASSE,
+        "teilstationaer", "Teilstationär");
+
+    public static HealthRecord.Code fromEncounterType(HealthRecord.EncounterType encounterType) {
+      switch (encounterType) {
+        case OUTPATIENT:
+          return AMBULANT;
+        case WELLNESS:
+          return NACHSTATIONAER;
+        case AMBULATORY:
+        case EMERGENCY:
+        case INPATIENT:
+          return STATIONAER;
+        case URGENTCARE:
+          return TEILSTATIONAER;
+      }
+      return null;
+    }
+
+    public static HealthRecord.Code fromEncounterType(String encounterType) {
+      return fromEncounterType(HealthRecord.EncounterType.fromString(encounterType));
+    }
   }
 
 
