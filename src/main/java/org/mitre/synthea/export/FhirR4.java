@@ -286,7 +286,7 @@ public class FhirR4 {
           if (observation.value instanceof Attachment && specialisationHandlesResourceType(FhirR4Specialisation.ResourceType.MEDIA)) {
             media(personEntry, bundle, encounterEntry, observation); //TODO media
           } else {
-            observation(personEntry, bundle, encounterEntry, observation);
+            observation(personEntry, bundle, encounterEntry, observation); //DONE observation [JW 2020-05-18]
           }
         }
 
@@ -1286,7 +1286,8 @@ public class FhirR4 {
     }
 
     if (fhirR4Specialisation != null) {
-      conditionResource = fhirR4Specialisation.conditionExtension(conditionResource, personEntry, bundle, encounterEntry, condition);
+      conditionResource = fhirR4Specialisation.conditionExtension(conditionResource,
+          personEntry, bundle, encounterEntry, condition);
     }
 
     BundleEntryComponent conditionEntry = newEntry(bundle, conditionResource);

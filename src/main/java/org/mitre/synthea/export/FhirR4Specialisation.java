@@ -562,19 +562,13 @@ public interface FhirR4Specialisation {
   /**
    * chooses attributes from a list, for example different nobility predicates (Graf, Prinz, Herzog, ...)
    */
-  class StringListAdditionalAttribute extends AdditionalAttribute<String> {
+  class StringListAdditionalAttribute extends GenericListAdditionalAttribute<String> {
 
     private final List<String> choices;
 
     public StringListAdditionalAttribute(float nullChance, JDKRandomGenerator random, String... choices) {
       super(nullChance, random);
       this.choices = Arrays.asList(choices);
-    }
-
-    @Override
-    String generate() {
-      if (evaluateChance()) return null;
-      return choices.get(randomGenerator.nextInt(choices.size()));
     }
 
     public StringType generateAsStringType() {

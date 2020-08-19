@@ -3,25 +3,21 @@ package org.mitre.synthea.world.concepts;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.io.Serializable;
 
+import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.commons.beanutils.PropertyUtils;
 import org.mitre.synthea.helpers.Utilities;
 import org.mitre.synthea.world.agents.Clinician;
 import org.mitre.synthea.world.agents.Person;
@@ -1201,6 +1197,64 @@ public class HealthRecord implements Serializable {
         instanceNo += 1;
       }
       seriesNo += 1;
+    }
+  }
+
+  public enum MovementType {
+    OPERATION, CONSULTATION, EXAMINATION_AND_TREATMENT, INPATIENT, ADMISSION
+  }
+
+  public class EncounterWithMovement extends Encounter {
+
+    List<Movement> movements;
+
+    public EncounterWithMovement(Encounter encounter) {
+      super(encounter.start, encounter.type);
+      this.allergies = encounter.allergies;
+      this.careplans = encounter.careplans;
+      this.claim = encounter.claim;
+      this.chronicMedsRenewed = encounter.chronicMedsRenewed;
+      this.clinician = encounter.clinician;
+      this.codes = encounter.codes;
+      this.conditions = encounter.conditions;
+      this.devices = encounter.devices;
+      this.discharge = encounter.discharge;
+      this.ended = encounter.ended;
+      this.fullUrl = encounter.fullUrl;
+      this.imagingStudies = encounter.imagingStudies;
+      this.immunizations = encounter.immunizations;
+      this.medications = encounter.medications;
+      this.name = encounter.name;
+      this.observations = encounter.observations;
+      this.procedures = encounter.procedures;
+      this.provider = encounter.provider;
+      this.reason = encounter.reason;
+      this.record = encounter.record;
+      this.reports = encounter.reports;
+      this.start = encounter.start;
+      this.stop = encounter.stop;
+      this.supplies = encounter.supplies;
+      this.type = encounter.type;
+
+      this.movements = new LinkedList<>();
+    }
+
+    public List<Movement> getMovements() {
+      return movements;
+    }
+
+    public void addMovement(MovementType movementType) {
+      Movement newMovement = new Movement(movementType);
+      this.movements.add(newMovement);
+    }
+
+    public class Movement {
+
+      MovementType type;
+
+      protected Movement(MovementType movementType) {
+        this.type = movementType;
+      }
     }
   }
 }

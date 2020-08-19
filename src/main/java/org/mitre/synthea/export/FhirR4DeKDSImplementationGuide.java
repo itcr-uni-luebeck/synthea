@@ -44,6 +44,7 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
   private static final String PROFILE_PERSON_PATIENT = "https://www.medizininformatik-initiative.de/fhir/core/StructureDefinition/Patient";
   private static final String PROFILE_VERSORGUNGSFALL = "https://www.medizininformatik-initiative.de/fhir/core/StructureDefinition/Encounter/Versorgungsfall";
   private static final String SYSTEM_DIAGNOSIS_ROLE = "http://terminology.hl7.org/CodeSystem/diagnosis-role";
+  private static final String SYSTEM_ICD10_GM = "http://fhir.de/CodeSystem/dimdi/icd-10-gm";
   /**
    * split the address into the parts 'house number' (no), 'street' (stn and stt) and additional line
    * for unit/apt/suite,... (adt and adn)
@@ -376,13 +377,33 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
   }
 
   @Override
-  public void encounterExtensions(Encounter encounterResource, Bundle.BundleEntryComponent encounterComponent, HealthRecord.Encounter encounterModel, Patient patientResource, Bundle.BundleEntryComponent patientComponent, Person patientAgent, Bundle bundle) {
-    var diagnoses = bundle.getEntry().stream().filter(b -> b.getResource().fhirType().equals("Condition")).map(b -> (Condition) b.getResource()).collect(Collectors.toList());
+  public void encounterExtensions(Encounter encounterResource,
+                                  Bundle.BundleEntryComponent encounterComponent,
+                                  HealthRecord.Encounter encounterModel,
+                                  Patient patientResource,
+                                  Bundle.BundleEntryComponent patientComponent,
+                                  Person patientAgent,
+                                  Bundle bundle) {
+    var diagnoses = bundle.getEntry().stream()
+        .filter(b -> b.getResource().fhirType().equals("Condition"))
+        .map(b -> (Condition) b.getResource())
+        .filter(c -> c.getEncounter().getReference().equals(encounterComponent.getFullUrl()))
+        .collect(Collectors.toList());
     var aufnahmeDiagnoseCode = new HealthRecord.Code(SYSTEM_DIAGNOSIS_ROLE, "AD", "Aufnahmediagnose");
     writeToConsole("diagnoses:", diagnoses.toString());
-    diagnoses.forEach(d -> encounterResource.addDiagnosis()
-        .setCondition(new Reference(d))
-        .setUse(FhirR4.mapCodeToCodeableConcept(aufnahmeDiagnoseCode, null)));
+    if (!diagnoses.isEmpty()) {
+      var d = diagnoses.get(0);
+      encounterResource.addDiagnosis()
+          .setCondition(new Reference(d))
+          .setUse(FhirR4.mapCodeToCodeableConcept(aufnahmeDiagnoseCode, null));
+    } else {
+      //no condition was established in this encounter.
+      //TODO handle according to discussion on https://chat.fhir.org/#narrow/stream/179307-german.2Fmi-initiative/topic/Modul.20Fall.20-.20Diagnosereferenz.20verpflichtend
+      var extensionDataAbsentReasonNotApplicable = new Extension()
+          .setUrl(EXTENSION_DATA_ABSENT_REASON)
+          .setValue(new CodeType(DataAbsentReason.NOTAPPLICABLE.toCode()));
+      encounterResource.addDiagnosis().addExtension(extensionDataAbsentReasonNotApplicable);
+    }
   }
 
   @Override
@@ -398,10 +419,13 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
         .setType(FhirR4.mapCodeToCodeableConcept(vnCode, null))
         .setSystem(SYNTHEA_DE + "/NamingSystem/Versorgungsfall")
         .setValue(UUID.randomUUID().toString());
-    identifierVersorgungfall.getAssigner().getIdentifier().setValue(encounter.provider.getResourceID()); //TODO is this consistent?
+    var providerFullUrl = encounterResource.getServiceProvider().getReference();
+    var providerDisplay = encounterResource.getServiceProvider().getDisplay();
+    identifierVersorgungfall.getAssigner().setReference(providerFullUrl).setDisplay(providerDisplay);
     encounterResource.addIdentifier(identifierVersorgungfall);
 
-    var versorgungsfallKlasse = VersorgungsfallKlasse.fromEncounterType(encounter.type);
+    var versorgungsfallKlasse = VersorgungsfallKlasse.fromEncounterTypeAsCoding(encounter.type);
+    encounterResource.setClass_(versorgungsfallKlasse);
 
     return encounterResource;
   }
@@ -419,6 +443,33 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
     static final float IS_NOBILITY = 0.3f;
     static final float NOBILITY_HAS_VOORVOEGSEL = 0.95f;
     static final float NOBILITY_HAS_PREFIX = 0.25f;
+  }
+
+  @Override
+  public Condition conditionExtension(Condition conditionResource, Bundle.BundleEntryComponent personEntry, Bundle bundle, Bundle.BundleEntryComponent encounterEntry, HealthRecord.Entry condition) {
+    conditionResource = conditionForbidden(conditionResource);
+    //maybe add a ICD 10 code
+    var random = new JDKRandomGenerator();
+
+    var icdCode = new GenericListAdditionalAttribute<>(0.9f, random,
+        new Coding(SYSTEM_ICD10_GM, "F71", "Mittelgradige Intelligenzminderung"),
+        new Coding(SYSTEM_ICD10_GM, "F16.1", "Psychische Verhaltensstörung durch Halluzinogene (Akute Intoxikation)"),
+        new Coding(SYSTEM_ICD10_GM, "U69.32", "Intravenöser Konsum sonstiger psychotroper Substanzen"),
+        new Coding(SYSTEM_ICD10_GM, "F16.1 U69.32!", "Psychische Verhaltensstörung durch Halluzinogene (Akute Intoxikation) bei intravenösem Konsum"),
+        new Coding(SYSTEM_ICD10_GM, "E10.30† H36.0*", "Diabetische Retinopathie"),
+        new Coding(SYSTEM_ICD10_GM, "E10.30", "Diabetes mellitus, Typ 1 : Mit Augenkomplikationen : Nicht als entgleist bezeichnet"),
+        new Coding(SYSTEM_ICD10_GM, "H36.0", "Affektionen der Netzhaut bei anderenorts klassifizierten Krankheiten")).generate();
+    if (icdCode != null) {
+      
+      conditionResource.getCode().addCoding(icdCode);
+    }
+    return conditionResource;
+  }
+
+  @Override
+  public Condition conditionForbidden(Condition conditionResource) {
+    conditionResource.setSubject(null);
+    return conditionResource;
   }
 
   public static class VersorgungsfallKlasse {
@@ -455,7 +506,11 @@ public class FhirR4DeKDSImplementationGuide implements FhirR4Specialisation {
     public static HealthRecord.Code fromEncounterType(String encounterType) {
       return fromEncounterType(HealthRecord.EncounterType.fromString(encounterType));
     }
-  }
 
+    public static Coding fromEncounterTypeAsCoding(String encounterType) {
+      var code = fromEncounterType(encounterType);
+      return new Coding().setSystem(code.system).setCode(code.code).setDisplay(code.display);
+    }
+  }
 
 }
