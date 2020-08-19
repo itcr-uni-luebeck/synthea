@@ -25,6 +25,7 @@ import org.apache.commons.io.IOCase;
 import org.apache.commons.io.filefilter.WildcardFileFilter;
 import org.mitre.synthea.datastore.DataStore;
 import org.mitre.synthea.editors.GrowthDataErrorsEditor;
+import org.mitre.synthea.editors.InpatientMovingEditor;
 import org.mitre.synthea.export.CDWExporter;
 import org.mitre.synthea.export.Exporter;
 import org.mitre.synthea.helpers.Config;
@@ -262,10 +263,14 @@ public class Generator {
       System.out.println(String.format("       > [%d loaded]", moduleNames.size()));
     }
 
+    HealthRecordEditors hrm = HealthRecordEditors.getInstance();
     if (Boolean.parseBoolean(
         Config.get("growtherrors", "false"))) {
-      HealthRecordEditors hrm = HealthRecordEditors.getInstance();
       hrm.registerEditor(new GrowthDataErrorsEditor());
+    }
+    if (Boolean.parseBoolean(
+        Config.get("inpatientmoving", "false"))) {
+      hrm.registerEditor(new InpatientMovingEditor());
     }
   }
 
